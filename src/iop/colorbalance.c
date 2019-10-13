@@ -334,7 +334,7 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
 
   // For neutral parameters, skip the computations doing x^1 or (x-a)*1 + a to save time
   const int run_contrast = (d->contrast == 1.0f) ? 0 : 1;
-  const int run_saturation = (d->saturation == 1.0f) ? 0: 1;
+  const int run_saturation = 0; //(d->saturation == 1.0f) ? 0: 1;
   const int run_saturation_out = (d->saturation_out == 1.0f) ? 0: 1;
 
   switch (d->mode)
@@ -507,11 +507,11 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
         }
 
         // main saturation output
-        if (run_saturation_out)
+        if (TRUE)//run_saturation_out)
         {
           dt_prophotorgb_to_XYZ(rgb, XYZ);
           luma = XYZ[1];
-          for(int c = 0; c < 3; c++) rgb[c] = luma + d->saturation_out * (rgb[c] - luma);
+          for(int c = 0; c < 3; c++) rgb[c] = luma * ( 1.f + d->saturation_out * (powf(rgb[c] / luma, d->saturation) - 1.0f));
         }
 
         // fulcrum contrat
