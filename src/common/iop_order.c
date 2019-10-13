@@ -330,6 +330,7 @@ static int _ioppr_legacy_iop_order_step(GList **_iop_order_list, GList *history_
         l = g_list_next(l);
       }
     }
+    _ioppr_insert_iop_after(_iop_order_list, history_list, "doctor", "denoiseprofile", dont_move);
     new_version = 5;
   }
   // each new version MUST be written as the following (_rewrite_order IS VERY important)
