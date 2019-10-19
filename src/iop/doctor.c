@@ -68,10 +68,10 @@ DT_MODULE_INTROSPECTION(1, dt_iop_doctor_params_t)
 typedef struct dt_iop_doctor_params_t
 {
   int scales, iterations;
-  float luma_strength, luma_feathering;
-  float chroma_strength, chroma_feathering;
-  float fringes_strength, fringes_feathering;
-  float sharpness_strength, sharpness_feathering;
+  float luma_strength, luma_feathering, luma_offset;
+  float chroma_strength, chroma_feathering, chroma_offset;
+  float fringes_strength, fringes_feathering, fringes_offset;
+  float sharpness_strength, sharpness_feathering, sharpness_offset;
   float highlight_clipping, lowlight_clipping, structure_threshold, update_speed;
   int reconstruct_iterations;
 } dt_iop_doctor_params_t;
@@ -80,11 +80,12 @@ typedef struct dt_iop_doctor_gui_data_t
 {
   GtkNotebook *notebook;
   GtkWidget *scales, *iterations;
-  GtkWidget *luma_feathering, *luma_strength;
-  GtkWidget *chroma_feathering, *chroma_strength;
-  GtkWidget *fringes_feathering, *fringes_strength;
+  GtkWidget *luma_feathering, *luma_strength, *luma_offset;
+  GtkWidget *chroma_feathering, *chroma_strength, *chroma_offset;
+  GtkWidget *fringes_feathering, *fringes_strength, *fringes_offset;
   GtkWidget *highlight_clipping, *lowlight_clipping;
-  GtkWidget *sharpness_feathering, *sharpness_strength, *structure_threshold, *update_speed, *reconstruct_iterations;
+  GtkWidget *sharpness_feathering, *sharpness_strength, *sharpness_offset;
+  GtkWidget *structure_threshold, *update_speed, *reconstruct_iterations;
 } dt_iop_doctor_gui_data_t;
 
 typedef dt_iop_doctor_params_t dt_iop_doctor_data_t;
@@ -442,9 +443,9 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece,
                                    dt_alloc_sse_ps(width * height)};
 
   float *const RGB_high_freq[4] = { dt_alloc_sse_ps(width * height),
-                                          dt_alloc_sse_ps(width * height),
-                                          dt_alloc_sse_ps(width * height),
-                                          dt_alloc_sse_ps(width * height)};
+                                    dt_alloc_sse_ps(width * height),
+                                    dt_alloc_sse_ps(width * height),
+                                    dt_alloc_sse_ps(width * height)};
 
   float *const out_RGB[3] = { dt_alloc_sse_ps(width * height),
                               dt_alloc_sse_ps(width * height),
@@ -463,17 +464,9 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece,
   float *const restrict luma_high_freq = dt_alloc_sse_ps(width * height);
 
   const float epsilon = 100.0f;
-  //const float luma_feathering = 1.f / powf(10.f, 2.0f * d->luma_feathering);
-  //const float luma_strength = d->luma_strength /  epsilon;
-
-  const float chroma_feathering = 1.f / powf(10.f, 2.0f * d->chroma_feathering);
-  const float chroma_strength = d->chroma_strength / epsilon;
-
-  const float fringes_feathering = 1.f / powf(10.f, 2.0f * d->fringes_feathering);
-  const float fringes_strength = d->fringes_strength / epsilon;
-
-  const float sharpness_feathering = 1.f / powf(10.f, 2.0f * d->sharpness_feathering);
-  const float sharpness_strength = d->sharpness_strength / epsilon;
+  const float fringes_strength = d->fringes_strength / epsilon / d->iterations;
+  const float sharpness_strength = d->sharpness_strength / epsilon / d->iterations;
+  const float chroma_strength = d->chroma_strength / epsilon / d->iterations;
 
   const float highlight_clipping = d->highlight_clipping / 100.0f;
   //const float lowlight_clipping = exp2f(d->lowlight_clipping);
@@ -482,6 +475,7 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece,
   //const int run_luma = (luma_strength != 0.0f);
   const int run_fringes = (fringes_strength != 0.0f);
   const int run_sharpness = (sharpness_strength != 0.0f);
+
 
   // Peel the array of structs into RGB layers (struct of arrays) and search for clipped pixels
   int mask_number = 0;
@@ -532,6 +526,14 @@ schedule(dynamic) collapse(3) reduction(+:mask_number) aligned(mask, out_RGB, in
 */
   for(int k = 0; k < d->scales; k++)
   {
+    //const float luma_feathering = 1.f / powf(10.f, 2.0f * d->luma_feathering);
+    //const float luma_strength = d->luma_strength /  epsilon;
+
+    const float chroma_feathering = powf(10.f, -2.0f * (d->chroma_feathering + k * d->chroma_offset));
+    const float fringes_feathering = powf(10.f, -2.0f * (d->fringes_feathering + k * d->fringes_offset));
+    const float sharpness_feathering_low = powf(10.f, -2.0f * (d->sharpness_feathering + k * d->sharpness_offset));
+    const float sharpness_feathering_high = powf(10.f, -2.0f * (d->sharpness_feathering + k * d->sharpness_offset) - 1.f);
+
     // At each size iteration, we increase the width of the guided filter window
     const int radius = MAX(1, (k + 1) / piece->iscale * roi_in->scale);
 
@@ -608,7 +610,10 @@ schedule(static) collapse(3)
       if(run_sharpness)
       {
         for(int c = 0; c < 3; c++)
-          fast_guided_filter_rgb(out_RGB[c], out_RGB[c], residual_out[c], width, height, 1, radius, sharpness_feathering, scale, FALSE);
+        {
+          fast_guided_filter_rgb(out_RGB[c], out_RGB[c], residual_out[c], width, height, 1, radius, sharpness_feathering_low, scale, FALSE);
+          fast_guided_filter_rgb(out_RGB[c], out_RGB[c], RGB_high_freq[c], width, height, 1, radius, sharpness_feathering_high, scale, FALSE);
+        }
 
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
@@ -622,7 +627,7 @@ schedule(static) collapse(3) aligned(out_RGB, residual_out:64)
             for(size_t c = 0; c < 3; ++c)
             {
               const size_t index = i * width + j;
-              const float high_freq = out_RGB[c][index] - residual_out[c][index];
+              const float high_freq = 0.5f * out_RGB[c][index] - residual_out[c][index] + 0.5f * RGB_high_freq[c][index];
               out_RGB[c][index] += sharpness_strength * high_freq;
             }
           }
@@ -671,12 +676,16 @@ void init(dt_iop_module_t *module)
                                                          .iterations = 1,
                                                          .luma_strength = 15.f,
                                                          .luma_feathering = 2.5f,
+                                                         .luma_offset = 0.0f,
                                                          .chroma_strength = 50.f,
-                                                         .chroma_feathering = 2.0f, // chroma
-                                                         .fringes_strength = 10.f,
-                                                         .fringes_feathering = 1.5f, // fringes
-                                                         .sharpness_strength = 10.f,
-                                                         .sharpness_feathering = 1.5f,   // sharpness
+                                                         .chroma_feathering = 2.0f,
+                                                         .chroma_offset = 0.5f,
+                                                         .fringes_strength = 25.f,
+                                                         .fringes_feathering = 2.0f,
+                                                         .fringes_offset = -0.25f,
+                                                         .sharpness_strength = 50.f,
+                                                         .sharpness_feathering = 1.5f,
+                                                         .sharpness_offset = 0.33f,
                                                          .highlight_clipping = 99.0f,
                                                          .structure_threshold = 0.0f,
                                                          .update_speed = 1.0f,
@@ -715,12 +724,15 @@ void gui_update(struct dt_iop_module_t *self)
 
   dt_bauhaus_slider_set_soft(g->luma_feathering, p->luma_feathering);
   dt_bauhaus_slider_set_soft(g->luma_strength, p->luma_strength);
+  dt_bauhaus_slider_set_soft(g->luma_offset, p->luma_offset);
 
   dt_bauhaus_slider_set_soft(g->chroma_feathering, p->chroma_feathering);
   dt_bauhaus_slider_set_soft(g->chroma_strength, p->chroma_strength);
+  dt_bauhaus_slider_set_soft(g->chroma_offset, p->chroma_offset);
 
   dt_bauhaus_slider_set_soft(g->fringes_feathering, p->fringes_feathering);
   dt_bauhaus_slider_set_soft(g->fringes_strength, p->fringes_strength);
+  dt_bauhaus_slider_set_soft(g->fringes_offset, p->fringes_offset);
 
   dt_bauhaus_slider_set_soft(g->highlight_clipping, p->highlight_clipping);
   dt_bauhaus_slider_set_soft(g->lowlight_clipping, p->lowlight_clipping);
@@ -730,6 +742,7 @@ void gui_update(struct dt_iop_module_t *self)
 
   dt_bauhaus_slider_set_soft(g->sharpness_feathering, p->sharpness_feathering);
   dt_bauhaus_slider_set_soft(g->sharpness_strength, p->sharpness_strength);
+  dt_bauhaus_slider_set_soft(g->sharpness_offset, p->sharpness_offset);
 }
 
 static void scales_callback(GtkWidget *slider, gpointer user_data)
@@ -768,6 +781,15 @@ static void luma_strength_callback(GtkWidget *slider, gpointer user_data)
   dt_dev_add_history_item(darktable.develop, self, TRUE);
 }
 
+static void luma_offset_callback(GtkWidget *slider, gpointer user_data)
+{
+  dt_iop_module_t *self = (dt_iop_module_t *)user_data;
+  if(self->dt->gui->reset) return;
+  dt_iop_doctor_params_t *p = (dt_iop_doctor_params_t *)self->params;
+  p->luma_offset = dt_bauhaus_slider_get(slider);
+  dt_dev_add_history_item(darktable.develop, self, TRUE);
+}
+
 static void chroma_feathering_callback(GtkWidget *slider, gpointer user_data)
 {
   dt_iop_module_t *self = (dt_iop_module_t *)user_data;
@@ -783,6 +805,15 @@ static void chroma_strength_callback(GtkWidget *slider, gpointer user_data)
   if(self->dt->gui->reset) return;
   dt_iop_doctor_params_t *p = (dt_iop_doctor_params_t *)self->params;
   p->chroma_strength = dt_bauhaus_slider_get(slider);
+  dt_dev_add_history_item(darktable.develop, self, TRUE);
+}
+
+static void chroma_offset_callback(GtkWidget *slider, gpointer user_data)
+{
+  dt_iop_module_t *self = (dt_iop_module_t *)user_data;
+  if(self->dt->gui->reset) return;
+  dt_iop_doctor_params_t *p = (dt_iop_doctor_params_t *)self->params;
+  p->chroma_offset = dt_bauhaus_slider_get(slider);
   dt_dev_add_history_item(darktable.develop, self, TRUE);
 }
 
@@ -804,6 +835,15 @@ static void fringes_strength_callback(GtkWidget *slider, gpointer user_data)
   dt_dev_add_history_item(darktable.develop, self, TRUE);
 }
 
+static void fringes_offset_callback(GtkWidget *slider, gpointer user_data)
+{
+  dt_iop_module_t *self = (dt_iop_module_t *)user_data;
+  if(self->dt->gui->reset) return;
+  dt_iop_doctor_params_t *p = (dt_iop_doctor_params_t *)self->params;
+  p->fringes_offset = dt_bauhaus_slider_get(slider);
+  dt_dev_add_history_item(darktable.develop, self, TRUE);
+}
+
 static void sharpness_feathering_callback(GtkWidget *slider, gpointer user_data)
 {
   dt_iop_module_t *self = (dt_iop_module_t *)user_data;
@@ -819,6 +859,15 @@ static void sharpness_strength_callback(GtkWidget *slider, gpointer user_data)
   if(self->dt->gui->reset) return;
   dt_iop_doctor_params_t *p = (dt_iop_doctor_params_t *)self->params;
   p->sharpness_strength = dt_bauhaus_slider_get(slider);
+  dt_dev_add_history_item(darktable.develop, self, TRUE);
+}
+
+static void sharpness_offset_callback(GtkWidget *slider, gpointer user_data)
+{
+  dt_iop_module_t *self = (dt_iop_module_t *)user_data;
+  if(self->dt->gui->reset) return;
+  dt_iop_doctor_params_t *p = (dt_iop_doctor_params_t *)self->params;
+  p->sharpness_offset = dt_bauhaus_slider_get(slider);
   dt_dev_add_history_item(darktable.develop, self, TRUE);
 }
 
@@ -921,6 +970,12 @@ void gui_init(dt_iop_module_t *self)
   gtk_box_pack_start(GTK_BOX(page1), g->luma_strength , FALSE, FALSE, 0);
   g_signal_connect(G_OBJECT(g->luma_strength ), "value-changed", G_CALLBACK(luma_strength_callback), self);
 
+  g->luma_offset = dt_bauhaus_slider_new_with_range(self, -1.0, 1.0, 0.5, 100., 2);
+  dt_bauhaus_slider_set_format(g->luma_offset, "%.2f dB");
+  dt_bauhaus_widget_set_label(g->luma_offset, NULL, _("offset between iterations"));
+  gtk_box_pack_start(GTK_BOX(page1), g->luma_offset , FALSE, FALSE, 0);
+  g_signal_connect(G_OBJECT(g->luma_offset), "value-changed", G_CALLBACK(luma_offset_callback), self);
+
   g->chroma_feathering = dt_bauhaus_slider_new_with_range(self, 0.1, 4., 0.2, 5., 2);
   dt_bauhaus_slider_set_format(g->chroma_feathering, "%.2f dB");
   dt_bauhaus_widget_set_label(g->chroma_feathering, NULL, _("edges sensitivity"));
@@ -933,6 +988,12 @@ void gui_init(dt_iop_module_t *self)
   gtk_box_pack_start(GTK_BOX(page2), g->chroma_strength, FALSE, FALSE, 0);
   g_signal_connect(G_OBJECT(g->chroma_strength), "value-changed", G_CALLBACK(chroma_strength_callback), self);
 
+  g->chroma_offset = dt_bauhaus_slider_new_with_range(self, -1.0, 1.0, 0.5, 100., 2);
+  dt_bauhaus_slider_set_format(g->chroma_offset, "%.2f dB");
+  dt_bauhaus_widget_set_label(g->chroma_offset, NULL, _("offset between iterations"));
+  gtk_box_pack_start(GTK_BOX(page2), g->chroma_offset , FALSE, FALSE, 0);
+  g_signal_connect(G_OBJECT(g->chroma_offset), "value-changed", G_CALLBACK(chroma_offset_callback), self);
+
   g->fringes_feathering = dt_bauhaus_slider_new_with_range(self, 0.1, 4., 0.2, 5., 2);
   dt_bauhaus_slider_set_format(g->fringes_feathering, "%.2f dB");
   dt_bauhaus_widget_set_label(g->fringes_feathering, NULL, _("edges sensitivity"));
@@ -944,6 +1005,12 @@ void gui_init(dt_iop_module_t *self)
   dt_bauhaus_widget_set_label(g->fringes_strength , NULL, _("defringing"));
   gtk_box_pack_start(GTK_BOX(page3), g->fringes_strength, FALSE, FALSE, 0);
   g_signal_connect(G_OBJECT(g->fringes_strength), "value-changed", G_CALLBACK(fringes_strength_callback), self);
+
+  g->fringes_offset = dt_bauhaus_slider_new_with_range(self, -1.0, 1.0, 0.5, 100., 2);
+  dt_bauhaus_slider_set_format(g->fringes_offset, "%.2f dB");
+  dt_bauhaus_widget_set_label(g->fringes_offset, NULL, _("offset between iterations"));
+  gtk_box_pack_start(GTK_BOX(page3), g->fringes_offset , FALSE, FALSE, 0);
+  g_signal_connect(G_OBJECT(g->fringes_offset), "value-changed", G_CALLBACK(fringes_offset_callback), self);
 
   g->highlight_clipping = dt_bauhaus_slider_new_with_range(self, 0., 150., 1., 100., 2);
   dt_bauhaus_slider_set_format(g->highlight_clipping, "%.2f %%");
@@ -984,6 +1051,12 @@ void gui_init(dt_iop_module_t *self)
   dt_bauhaus_widget_set_label(g->sharpness_strength , NULL, _("sharpening"));
   gtk_box_pack_start(GTK_BOX(page5), g->sharpness_strength , FALSE, FALSE, 0);
   g_signal_connect(G_OBJECT(g->sharpness_strength ), "value-changed", G_CALLBACK(sharpness_strength_callback), self);
+
+  g->sharpness_offset = dt_bauhaus_slider_new_with_range(self, -1.0, 1.0, 0.5, 100., 2);
+  dt_bauhaus_slider_set_format(g->sharpness_offset, "%.2f dB");
+  dt_bauhaus_widget_set_label(g->sharpness_offset, NULL, _("offset between iterations"));
+  gtk_box_pack_start(GTK_BOX(page5), g->sharpness_offset , FALSE, FALSE, 0);
+  g_signal_connect(G_OBJECT(g->sharpness_offset), "value-changed", G_CALLBACK(sharpness_offset_callback), self);
 }
 
 void gui_cleanup(struct dt_iop_module_t *self)
