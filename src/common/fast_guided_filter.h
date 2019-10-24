@@ -248,7 +248,8 @@ static inline void variance_analyse(const float *const restrict guide, // I
         tmp[c] *= num_elem;
 
       const size_t index = (i * width + j) * 2;
-      const float a = (tmp[3] - tmp[0] * tmp[1]) / ((tmp[2] - tmp[0] * tmp[0]) + feathering);
+      const float d = fmaxf((tmp[2] - tmp[0] * tmp[0]) + feathering, 1e-15f); // avoid 0.
+      const float a = (tmp[3] - tmp[0] * tmp[1]) / d;
 
       ab[index] = a;
       ab[index + 1] = tmp[1] - a * tmp[0]; // = b
@@ -359,6 +360,40 @@ schedule(static) aligned(image, ab:64)
   {
     // Note : image[k] is positive at the outside of the luminance mask
     image[k] = fmaxf(image[k] * ab[k * 2] + ab[k * 2 + 1], MIN_FLOAT);
+  }
+}
+
+
+__DT_CLONE_TARGETS__
+static inline void apply_linear_blending_unbounded(const float *const image,
+                                                   float *const out,
+                                                   const float *const restrict ab,
+                                                   const size_t num_elem,
+                                                   const int clip)
+{
+  if(clip)
+  {
+#ifdef _OPENMP
+#pragma omp parallel for simd default(none) \
+dt_omp_firstprivate(image, out, ab, num_elem) \
+schedule(static) aligned(image, out, ab:64)
+#endif
+    for(size_t k = 0; k < num_elem; k++)
+    {
+      out[k] = fmaxf(image[k] * ab[k * 2] + ab[k * 2 + 1], MIN_FLOAT);
+    }
+  }
+  else
+  {
+#ifdef _OPENMP
+#pragma omp parallel for simd default(none) \
+dt_omp_firstprivate(image, out, ab, num_elem) \
+schedule(static) aligned(image, out, ab:64)
+#endif
+    for(size_t k = 0; k < num_elem; k++)
+    {
+      out[k] = image[k] * ab[k * 2] + ab[k * 2 + 1];
+    }
   }
 }
 
@@ -495,3 +530,76 @@ clean:
   if(ds_mask) dt_free_align(ds_mask);
   if(ds_image) dt_free_align(ds_image);
 }
+
+
+__DT_CLONE_TARGETS__
+static inline void fast_guided_filter_rgb(const float *const image, //
+                                          const float *const mask, // guide
+                                          float *const out,
+                                          const size_t width, const size_t height, const size_t ch,
+                                          const int radius, const float feathering, const float scaling,
+                                          const int clip)
+{
+  // Works in-place on a grey image
+
+  // A down-scaling of 4 seems empirically safe and consistent no matter the image zoom level
+  // see reference paper above for proof.
+  int ds_radius = (radius < (int)scaling) ? 1 : radius / scaling;
+
+  const size_t ds_height = height / scaling;
+  const size_t ds_width = width / scaling;
+
+  const size_t num_elem_ds = ds_width * ds_height;
+  const size_t num_elem = width * height;
+
+  const int resize = (num_elem != num_elem_ds);
+
+  float *const restrict ab = dt_alloc_sse_ps(num_elem * 2);
+
+  if(resize)
+  {
+    float *const restrict ds_image = dt_alloc_sse_ps(num_elem_ds);
+    float *const restrict ds_mask = dt_alloc_sse_ps(num_elem_ds);
+    float *const restrict ds_ab = dt_alloc_sse_ps(num_elem_ds * 2);
+
+    if(!ds_image || !ds_mask || !ds_ab || !ab)
+    {
+      dt_control_log(_("fast guided filter failed to allocate memory, check your RAM settings"));
+    }
+    else
+    {
+      // Downsample the RGB image and mask for speed-up
+      interpolate_bilinear(image, width, height, ds_image, ds_width, ds_height, ch);
+      interpolate_bilinear(mask, width, height, ds_mask, ds_width, ds_height, ch);
+
+      // Perform the patch-wise variance analyse to get
+      // the a and b parameters for the linear blending s.t. mask = a * I + b
+      variance_analyse(ds_mask, ds_image, ds_ab, ds_width, ds_height, ds_radius, feathering);
+
+      // Compute the patch-wise average of parameters a and b
+      box_average(ds_ab, ds_width, ds_height, 2, ds_radius);
+
+      // Upsample the blending parameters a and b
+      interpolate_bilinear(ds_ab, ds_width, ds_height, ab, width, height, 2);
+    }
+
+    if(ds_ab) dt_free_align(ds_ab);
+    if(ds_mask) dt_free_align(ds_mask);
+    if(ds_image) dt_free_align(ds_image);
+  }
+  else
+  {
+    // Perform the patch-wise variance analyse to get
+    // the a and b parameters for the linear blending s.t. mask = a * I + b
+    variance_analyse(mask, image, ab, width, height, ds_radius, feathering);
+
+    // Compute the patch-wise average of parameters a and b
+    box_average(ab, width, height, 2, ds_radius);
+  }
+
+  // Finally, blend the guided image
+  apply_linear_blending_unbounded(image, out, ab, num_elem, clip);
+
+  if(ab) dt_free_align(ab);
+}
+

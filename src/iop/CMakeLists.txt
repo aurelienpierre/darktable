@@ -142,6 +142,8 @@ add_iop(mask_manager "mask_manager.c")
 add_iop(lut3d "lut3d.c")
 add_iop(toneequal "toneequal.c" DEFAULT_VISIBLE)
 add_iop(filmicrgb "filmicrgb.c" DEFAULT_VISIBLE)
+add_iop(doctor "doctor.c")
+
 
 if(RSVG2_FOUND)
   add_iop(watermark "watermark.c")
