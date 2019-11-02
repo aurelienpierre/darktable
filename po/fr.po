@@ -2,8 +2,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: darktable 2.6\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2019-10-30 16:48+0100\n"
-"PO-Revision-Date: 2019-10-31 12:53+0100\n"
+"POT-Creation-Date: 2019-11-01 22:21+0100\n"
+"PO-Revision-Date: 2019-11-01 22:21+0100\n"
 "Last-Translator: Pascal Obry <pascal@obry.net>\n"
 "Language-Team: \n"
 "Language: fr_FR\n"
@@ -12,6 +12,20 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
 "X-Generator: Poedit 2.2.4\n"
+
+#: ../build/data/darktable.desktop.in.h:1 ../data/darktable.desktop.in.h:1
+msgid "Virtual Lighttable and Darkroom"
+msgstr "Table Lumineuse et Chambre Noire virtuelles"
+
+#: ../build/data/darktable.desktop.in.h:2 ../data/darktable.appdata.xml.in.h:1
+#: ../data/darktable.desktop.in.h:2
+msgid "Organize and develop images from digital cameras"
+msgstr "Organiser et développer les images d'un boîtier numérique"
+
+#. TRANSLATORS: Search terms to find this application. Do NOT translate or localize the semicolons! The list MUST also end with a semicolon!
+#: ../build/data/darktable.desktop.in.h:4 ../data/darktable.desktop.in.h:4
+msgid "graphics;photography;raw;"
+msgstr "graphisme;photographie;raw;"
 
 #: ../build/src/preferences_gen.h:2104
 msgid "GUI options"
@@ -1179,10 +1193,6 @@ msgstr "nommage des fichiers"
 msgid "file naming pattern used for a import session"
 msgstr "nommage des fichiers pour la session d'importation"
 
-#: ../data/darktable.appdata.xml.in.h:1 ../data/darktable.desktop.in.h:2
-msgid "Organize and develop images from digital cameras"
-msgstr "Organiser et développer les images d'un boîtier numérique"
-
 #: ../data/darktable.appdata.xml.in.h:2
 msgid ""
 "darktable manages your digital negatives in a database and lets you view "
@@ -1229,14 +1239,15 @@ msgstr "Montre des images sur la carte"
 msgid "Print your images"
 msgstr "Imprimer vos images"
 
-#: ../data/darktable.desktop.in.h:1
-msgid "Virtual Lighttable and Darkroom"
-msgstr "Table Lumineuse et Chambre Noire virtuelles"
+#: ../src/bauhaus/bauhaus.c:2266
+#, c-format
+msgid "%s/%s: %s"
+msgstr "%s/%s: %s"
 
-#. TRANSLATORS: Search terms to find this application. Do NOT translate or localize the semicolons! The list MUST also end with a semicolon!
-#: ../data/darktable.desktop.in.h:4
-msgid "graphics;photography;raw;"
-msgstr "graphisme;photographie;raw;"
+#: ../src/bauhaus/bauhaus.c:2268
+#, c-format
+msgid "%s: %s"
+msgstr "%s: %s"
 
 #: ../src/chart/main.c:463 ../src/control/jobs/control_jobs.c:1629
 #: ../src/control/jobs/control_jobs.c:1689 ../src/gui/hist_dialog.c:171
@@ -1348,19 +1359,19 @@ msgstr ""
 msgid "too much time to update aspect ratio for the collection"
 msgstr "trop de temps pour mettre à jour l'aspect pour la collection"
 
-#: ../src/common/collection.c:1241 ../src/develop/lightroom.c:824
+#: ../src/common/collection.c:1241 ../src/develop/lightroom.c:825
 #: ../src/iop/bilateral.cc:371 ../src/iop/channelmixer.c:456
 #: ../src/iop/channelmixer.c:467 ../src/iop/colorbalance.c:2525
 #: ../src/iop/temperature.c:1378 ../src/libs/collect.c:1284
 msgid "red"
 msgstr "rouge"
 
-#: ../src/common/collection.c:1243 ../src/develop/lightroom.c:826
+#: ../src/common/collection.c:1243 ../src/develop/lightroom.c:827
 #: ../src/iop/temperature.c:1369 ../src/libs/collect.c:1284
 msgid "yellow"
 msgstr "jaune"
 
-#: ../src/common/collection.c:1245 ../src/develop/lightroom.c:828
+#: ../src/common/collection.c:1245 ../src/develop/lightroom.c:829
 #: ../src/iop/bilateral.cc:372 ../src/iop/channelmixer.c:457
 #: ../src/iop/channelmixer.c:473 ../src/iop/colorbalance.c:2532
 #: ../src/iop/temperature.c:1366 ../src/iop/temperature.c:1379
@@ -1368,7 +1379,7 @@ msgstr "jaune"
 msgid "green"
 msgstr "vert"
 
-#: ../src/common/collection.c:1247 ../src/develop/lightroom.c:830
+#: ../src/common/collection.c:1247 ../src/develop/lightroom.c:831
 #: ../src/iop/bilateral.cc:373 ../src/iop/channelmixer.c:458
 #: ../src/iop/channelmixer.c:479 ../src/iop/colorbalance.c:2539
 #: ../src/iop/temperature.c:1380 ../src/libs/collect.c:1284
@@ -1688,6 +1699,10 @@ msgstr "darktable - erreur lors de l'ouverture de la base de données"
 msgid "delete database"
 msgstr "effacer la base de données"
 
+#: ../src/common/fast_guided_filter.h:456
+msgid "fast guided filter failed to allocate memory, check your RAM settings"
+msgstr "le filtre guidé n'a pas assez de mémoire, vérifier votre RAM"
+
 #: ../src/common/film.c:311
 msgid "do you want to remove this empty directory?"
 msgid_plural "do you want to remove these empty directories?"
@@ -1849,6 +1864,11 @@ msgstr ""
 "impossible d'affecter un nom unique pour la session. vérifier les réglages "
 "d'importation."
 
+#: ../src/common/iop_order.c:1893
+#, c-format
+msgid "unsupported working profile %s has been replaced by Rec2020 RGB!\n"
+msgstr "profil de travail %s non supporté, remplacé par Rec 2020 RVB !\n"
+
 #: ../src/common/noiseprofiles.c:27
 msgid "generic poissonian"
 msgstr "distribution générique"
@@ -1858,26 +1878,26 @@ msgstr "distribution générique"
 msgid "noiseprofile file `%s' is not valid"
 msgstr "le profil de gestion du bruit « %s » n'est pas valide"
 
-#: ../src/common/opencl.c:785
+#: ../src/common/opencl.c:786
 msgid ""
 "due to a slow GPU hardware acceleration via opencl has been de-activated."
 msgstr "l'accélération matérielle opencl est lente et a donc été désactivée"
 
-#: ../src/common/opencl.c:792
+#: ../src/common/opencl.c:793
 msgid ""
 "multiple GPUs detected - opencl scheduling profile has been set accordingly."
 msgstr ""
 "GPU multiples détectés - la planification opencl a été positionnée en "
 "conséquence"
 
-#: ../src/common/opencl.c:799
+#: ../src/common/opencl.c:800
 msgid ""
 "very fast GPU detected - opencl scheduling profile has been set accordingly."
 msgstr ""
 "GPU très rapide détecté - la planification opencl a été positionnée en "
 "conséquence"
 
-#: ../src/common/opencl.c:806
+#: ../src/common/opencl.c:807
 msgid "opencl scheduling profile set to default."
 msgstr "profil de planification opencl par défaut positionné"
 
@@ -3076,40 +3096,40 @@ msgstr ""
 "pré-réglages\n"
 "clic-milieu pour appliquer sur une nouvelle instance"
 
-#: ../src/develop/lightroom.c:1034
+#: ../src/develop/lightroom.c:1072
 msgid "cannot find lightroom XMP!"
 msgstr "impossible de trouver un XMP venant de Lightroom !"
 
-#: ../src/develop/lightroom.c:1066 ../src/develop/lightroom.c:1088
-#: ../src/develop/lightroom.c:1108
+#: ../src/develop/lightroom.c:1104 ../src/develop/lightroom.c:1126
+#: ../src/develop/lightroom.c:1146
 #, c-format
 msgid "`%s' not a lightroom XMP!"
 msgstr "« %s » n'est pas un XMP de Lightroom !"
 
 #. tags
-#: ../src/develop/lightroom.c:1572 ../src/gui/camera_import_dialog.c:465
+#: ../src/develop/lightroom.c:1505 ../src/gui/camera_import_dialog.c:465
 #: ../src/libs/export_metadata.c:273 ../src/libs/import.c:580
 #: ../src/libs/metadata_view.c:137
 msgid "tags"
 msgstr "mots-clés"
 
 #. DT_COLLECTION_SORT_DATETIME
-#: ../src/develop/lightroom.c:1581 ../src/libs/tools/filter.c:149
+#: ../src/develop/lightroom.c:1514 ../src/libs/tools/filter.c:149
 msgid "rating"
 msgstr "étoile"
 
-#: ../src/develop/lightroom.c:1593 ../src/libs/collect.h:38
+#: ../src/develop/lightroom.c:1526 ../src/libs/collect.h:38
 #: ../src/libs/geotagging.c:63
 msgid "geotagging"
 msgstr "géolocalisation"
 
 #. DT_COLLECTION_SORT_ID
-#: ../src/develop/lightroom.c:1602 ../src/libs/collect.h:34
+#: ../src/develop/lightroom.c:1535 ../src/libs/collect.h:34
 #: ../src/libs/tools/filter.c:151
 msgid "color label"
 msgstr "labels couleur"
 
-#: ../src/develop/lightroom.c:1608
+#: ../src/develop/lightroom.c:1541
 #, c-format
 msgid "%s has been imported"
 msgid_plural "%s have been imported"
@@ -4186,8 +4206,8 @@ msgstr "auto"
 #. Adding the import/export buttons
 #: ../src/gui/preferences.c:544 ../src/gui/preferences.c:637
 msgctxt "preferences"
-msgid "import"
-msgstr "importation"
+msgid "import..."
+msgstr "importer..."
 
 #. Adding the outer container
 #: ../src/gui/preferences.c:584
@@ -4202,10 +4222,10 @@ msgstr "raccourcis"
 msgid "binding"
 msgstr "lien"
 
-#. Export button
-#: ../src/gui/preferences.c:642 ../src/libs/export.c:716
-msgid "export"
-msgstr "exporter"
+#. export button
+#: ../src/gui/preferences.c:642 ../src/libs/styles.c:472
+msgid "export..."
+msgstr "exporter..."
 
 #. Setting the notification text
 #: ../src/gui/preferences.c:919
@@ -6550,6 +6570,11 @@ msgstr "N/B Kodak T-max 400"
 msgid "B/W Kodak Tri-X 400"
 msgstr "N/B Kodak Tri-X 400"
 
+#: ../src/iop/choleski.h:303 ../src/iop/choleski.h:401
+msgid ""
+"Choleski decomposition failed to allocate memory, check your RAM settings"
+msgstr "la décomposition de Choleski n'a pas assez de mémoire, vérifier la RAM"
+
 #: ../src/iop/clahe.c:337 ../src/iop/sharpen.c:791
 msgid "amount"
 msgstr "quantité"
@@ -8569,8 +8594,8 @@ msgstr "latitude"
 
 #: ../src/iop/filmicrgb.c:274
 msgctxt "accel"
-msgid "shadows/highlights balance"
-msgstr "balance ombres/hautes lumières"
+msgid "shadows highlights balance"
+msgstr "balance ombres hautes lumières"
 
 #: ../src/iop/filmicrgb.c:275
 msgctxt "accel"
@@ -9757,6 +9782,10 @@ msgstr "pyramide"
 msgid "select the interpolation method"
 msgstr "sélectionner la méthode d'interpolation"
 
+#: ../src/iop/mask_manager.c:45 ../src/libs/masks.c:56
+msgid "mask manager"
+msgstr "gestion des masques"
+
 #: ../src/iop/monochrome.c:74
 msgid "monochrome"
 msgstr "monochrome"
@@ -10852,8 +10881,8 @@ msgstr "diamètre adoucissement"
 
 #: ../src/iop/toneequal.c:321
 msgctxt "accel"
-msgid "edges refinement/feathering"
-msgstr "raffinement/adoucissement des bords"
+msgid "edges refinement or feathering"
+msgstr "raffinement ou adoucissement des bords"
 
 #: ../src/iop/toneequal.c:322
 msgctxt "accel"
@@ -12170,6 +12199,11 @@ msgstr ""
 "indique si les éléments du style sont à ajouter à l'historique ou remplace "
 "ce dernier"
 
+#. Export button
+#: ../src/libs/export.c:716
+msgid "export"
+msgstr "exporter"
+
 #: ../src/libs/export.c:718
 msgid "export with current settings"
 msgstr "exporte avec les réglages actuels"
@@ -12994,10 +13028,6 @@ msgstr "source"
 msgid "select the source of the map. some entries might not work"
 msgstr ""
 "sélectionne l'origine de la carte. certaines peuvent ne pas fonctionner"
-
-#: ../src/libs/masks.c:56
-msgid "mask manager"
-msgstr "gestion des masques"
 
 #: ../src/libs/masks.c:242
 #, c-format
@@ -13845,11 +13875,6 @@ msgstr "importer..."
 msgid "import style from a style file"
 msgstr "importe un style depuis un fichier"
 
-#. export button
-#: ../src/libs/styles.c:472
-msgid "export..."
-msgstr "exporter..."
-
 #: ../src/libs/styles.c:474
 msgid "export the selected style into a style file"
 msgstr "exporte le style sélectionné dans un fichier"
@@ -14484,6 +14509,10 @@ msgstr "affiche les surimpressions"
 #: ../src/libs/tools/hinter.c:42
 msgid "hinter"
 msgstr "rendu"
+
+#: ../src/libs/tools/image_infos.c:40
+msgid "image infos"
+msgstr "information de l'image"
 
 #: ../src/libs/tools/lighttable.c:140
 msgid "zoomable light table"
@@ -15264,6 +15293,14 @@ msgstr "raccourcis"
 #: ../src/views/view.c:2415
 msgid "Action"
 msgstr "action"
+
+#~ msgctxt "accel"
+#~ msgid "shadows/highlights balance"
+#~ msgstr "balance ombres/hautes lumières"
+
+#~ msgctxt "preferences"
+#~ msgid "import"
+#~ msgstr "importation"
 
 #~ msgid "display the exposure mask"
 #~ msgstr "affiche le masque d'exposition"
