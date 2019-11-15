@@ -639,6 +639,8 @@ void cleanup(dt_iop_module_t *module)
 {
   free(module->params);
   module->params = NULL;
+  free(module->default_params);
+  module->default_params = NULL;
 }
 
 void gui_focus(struct dt_iop_module_t *self, gboolean in)
@@ -683,7 +685,7 @@ void gui_init(struct dt_iop_module_t *self)
   g->sl_exposure = dt_bauhaus_slider_new_with_range(self, -4.0, 4.0, .02, p->exposure, 2);
   dt_bauhaus_slider_enable_soft_boundaries(g->sl_exposure, -18.0, 18.0);
   dt_bauhaus_widget_set_label(g->sl_exposure, NULL, _("exposure"));
-  dt_bauhaus_slider_set_format(g->sl_exposure, "%.2fEV");
+  dt_bauhaus_slider_set_format(g->sl_exposure, _("%.2f EV"));
   g_object_set(g->sl_exposure, "tooltip-text", _("adjust the exposure correction"), (char *)NULL);
   g_signal_connect(G_OBJECT(g->sl_exposure), "value-changed", G_CALLBACK(_exposure_callback), self);
   gtk_box_pack_start(GTK_BOX(self->widget), g->sl_exposure, TRUE, TRUE, 0);
@@ -706,10 +708,10 @@ void gui_init(struct dt_iop_module_t *self)
   dt_bauhaus_widget_set_label(g->cmb_preserve_colors, NULL, _("preserve colors"));
   dt_bauhaus_combobox_add(g->cmb_preserve_colors, _("none"));
   dt_bauhaus_combobox_add(g->cmb_preserve_colors, _("luminance"));
-  dt_bauhaus_combobox_add(g->cmb_preserve_colors, _("max rgb"));
-  dt_bauhaus_combobox_add(g->cmb_preserve_colors, _("average rgb"));
-  dt_bauhaus_combobox_add(g->cmb_preserve_colors, _("sum rgb"));
-  dt_bauhaus_combobox_add(g->cmb_preserve_colors, _("norm rgb"));
+  dt_bauhaus_combobox_add(g->cmb_preserve_colors, _("max RGB"));
+  dt_bauhaus_combobox_add(g->cmb_preserve_colors, _("average RGB"));
+  dt_bauhaus_combobox_add(g->cmb_preserve_colors, _("sum RGB"));
+  dt_bauhaus_combobox_add(g->cmb_preserve_colors, _("norm RGB"));
   dt_bauhaus_combobox_add(g->cmb_preserve_colors, _("basic power"));
   gtk_box_pack_start(GTK_BOX(self->widget), g->cmb_preserve_colors, TRUE, TRUE, 0);
   gtk_widget_set_tooltip_text(g->cmb_preserve_colors, _("method to preserve colors when applying contrast"));

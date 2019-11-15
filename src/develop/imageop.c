@@ -27,6 +27,7 @@
 #include "common/interpolation.h"
 #include "common/iop_group.h"
 #include "common/module.h"
+#include "common/history.h"
 #include "common/opencl.h"
 #include "common/usermanual_url.h"
 #include "control/control.h"
@@ -563,6 +564,10 @@ static void dt_iop_gui_delete_callback(GtkButton *button, dt_iop_module_t *modul
     modules = g_list_next(modules);
   }
   if(!next) return; // what happened ???
+
+  if(dev->gui_attached)
+    dt_control_signal_raise(darktable.signals, DT_SIGNAL_DEVELOP_HISTORY_WILL_CHANGE,
+                            dt_history_duplicate(darktable.develop->history), darktable.develop->history_end);
 
   // we must pay attention if priority is 0
   gboolean is_zero = (module->multi_priority == 0);
@@ -1496,8 +1501,6 @@ void dt_iop_cleanup_module(dt_iop_module_t *module)
 {
   module->cleanup(module);
 
-  free(module->default_params);
-  module->default_params = NULL;
   free(module->blend_params);
   module->blend_params = NULL;
   free(module->default_blendop_params);
@@ -1726,6 +1729,9 @@ void dt_iop_request_focus(dt_iop_module_t *module)
 
     /*reset mask view */
     dt_masks_reset_form_gui();
+
+    /* do stuff needed in the blending gui */
+    dt_iop_gui_blending_lose_focus(darktable.develop->gui_module);
   }
 
   darktable.develop->gui_module = module;
@@ -1970,7 +1976,16 @@ GtkWidget *dt_iop_gui_get_expander(dt_iop_module_t *module)
   gtk_widget_set_name(GTK_WIDGET(hw[IOP_MODULE_PRESETS]), "module-preset-button");
 
   /* add enabled button */
-  hw[IOP_MODULE_SWITCH] = dtgtk_togglebutton_new(dtgtk_cairo_paint_switch, CPF_STYLE_FLAT | CPF_BG_TRANSPARENT | CPF_DO_NOT_USE_BORDER, NULL);
+  if(module->enabled && module->default_enabled && module->hide_enable_button)
+  {
+    hw[IOP_MODULE_SWITCH] = dtgtk_togglebutton_new(dtgtk_cairo_paint_switch_on, CPF_STYLE_FLAT | CPF_BG_TRANSPARENT | CPF_DO_NOT_USE_BORDER, NULL);
+    gtk_widget_set_name(GTK_WIDGET(hw[IOP_MODULE_SWITCH]), "module-always-enabled-button");
+  }
+  else
+  {
+    hw[IOP_MODULE_SWITCH] = dtgtk_togglebutton_new(dtgtk_cairo_paint_switch, CPF_STYLE_FLAT | CPF_BG_TRANSPARENT | CPF_DO_NOT_USE_BORDER, NULL);
+    gtk_widget_set_name(GTK_WIDGET(hw[IOP_MODULE_SWITCH]), "module-enable-button");
+  }
   gchar *module_label = dt_history_item_get_name(module);
   snprintf(tooltip, sizeof(tooltip), module->enabled ? _("%s is switched on") : _("%s is switched off"),
            module_label);
@@ -1980,8 +1995,6 @@ GtkWidget *dt_iop_gui_get_expander(dt_iop_module_t *module)
   g_signal_connect(G_OBJECT(hw[IOP_MODULE_SWITCH]), "toggled", G_CALLBACK(dt_iop_gui_off_callback), module);
   module->off = DTGTK_TOGGLEBUTTON(hw[IOP_MODULE_SWITCH]);
   if(module->hide_enable_button) gtk_widget_set_sensitive(GTK_WIDGET(hw[IOP_MODULE_SWITCH]), FALSE);
-
-  gtk_widget_set_name(GTK_WIDGET(hw[IOP_MODULE_SWITCH]), "module-enable-button");
 
   /* reorder header, for now, iop are always in the right panel */
   for(int i = 0; i < IOP_MODULE_LAST; i++)
