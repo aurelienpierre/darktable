@@ -90,7 +90,7 @@ void gui_init(dt_lib_module_t *self)
   gtk_widget_set_name(GTK_WIDGET(self->widget), "lib-modulelist");
 
   /* connect to signal for darktable.develop initialization */
-  dt_control_signal_connect(darktable.signals, DT_SIGNAL_DEVELOP_INITIALIZE,
+  dt_control_signal_connect(darktable.signals, DT_SIGNAL_DEVELOP_UI_PIPE_FINISHED,
                             G_CALLBACK(_lib_modulelist_populate_callback), self);
   g_signal_connect(GTK_WIDGET(d->tree), "style-set", G_CALLBACK(_lib_modulelist_style_set), self);
   g_signal_connect(GTK_WIDGET(d->tree), "cursor-changed", G_CALLBACK(_lib_modulelist_row_changed_callback),
@@ -120,32 +120,32 @@ static void image_renderer_function(GtkTreeViewColumn *col, GtkCellRenderer *ren
   // FIXME: is that correct?
   GdkPixbuf *pixbuf;
   cairo_surface_t *surface;
-  dt_iop_module_so_t *module;
+  dt_iop_module_t *module;
   gtk_tree_model_get(model, iter, COL_IMAGE, &pixbuf, -1);
   gtk_tree_model_get(model, iter, COL_MODULE, &module, -1);
   surface = dt_gdk_cairo_surface_create_from_pixbuf(pixbuf, 1, NULL);
   g_object_set(renderer, "surface", surface, (gchar *)0);
-  g_object_set(renderer, "cell-background-set", module->state != dt_iop_state_HIDDEN, (gchar *)0);
+  g_object_set(renderer, "cell-background-set", module->so->state != dt_iop_state_HIDDEN, (gchar *)0);
   cairo_surface_destroy(surface);
   g_object_unref(pixbuf);
 }
 static void favorite_renderer_function(GtkTreeViewColumn *col, GtkCellRenderer *renderer, GtkTreeModel *model,
                                        GtkTreeIter *iter, gpointer user_data)
 {
-  dt_iop_module_so_t *module;
+  dt_iop_module_t *module;
   gtk_tree_model_get(model, iter, COL_MODULE, &module, -1);
-  g_object_set(renderer, "cell-background-set", module->state != dt_iop_state_HIDDEN, (gchar *)0);
+  g_object_set(renderer, "cell-background-set", module->so->state != dt_iop_state_HIDDEN, (gchar *)0);
   GdkPixbuf *fav_pixbuf
       = ((dt_lib_modulelist_t *)darktable.view_manager->proxy.more_module.module->data)->fav_pixbuf;
-  g_object_set(renderer, "pixbuf", module->state == dt_iop_state_FAVORITE ? fav_pixbuf : NULL, (gchar *)0);
+  g_object_set(renderer, "pixbuf", module->so->state == dt_iop_state_FAVORITE ? fav_pixbuf : NULL, (gchar *)0);
 }
 static void text_renderer_function(GtkTreeViewColumn *col, GtkCellRenderer *renderer, GtkTreeModel *model,
                                    GtkTreeIter *iter, gpointer user_data)
 {
-  dt_iop_module_so_t *module;
+  dt_iop_module_t *module;
   gtk_tree_model_get(model, iter, COL_MODULE, &module, -1);
-  g_object_set(renderer, "text", module->name(), (gchar *)0);
-  g_object_set(renderer, "cell-background-set", module->state != dt_iop_state_HIDDEN, (gchar *)0);
+  g_object_set(renderer, "text", module->so->name(), (gchar *)0);
+  g_object_set(renderer, "cell-background-set", module->so->state != dt_iop_state_HIDDEN, (gchar *)0);
 }
 
 static GdkPixbuf *load_image(const char *filename)
@@ -163,6 +163,17 @@ static GdkPixbuf *load_image(const char *filename)
 }
 
 static const uint8_t fallback_pixel[4] = { 0, 0, 0, 0 };
+
+
+static inline gint display_module(const dt_iop_module_t *const module)
+{
+  const gint is_visible = (gint)!dt_iop_so_is_hidden(module->so);
+  const gint is_not_deprecated = (gint)!(module->so->flags() & IOP_FLAGS_DEPRECATED);
+  const gint is_enabled = (gint)module->enabled;
+
+  return is_visible && (is_not_deprecated || is_enabled);
+}
+
 
 static void _lib_modulelist_populate_callback(gpointer instance, gpointer user_data)
 {
@@ -235,24 +246,25 @@ static void _lib_modulelist_populate_callback(gpointer instance, gpointer user_d
   gtk_tree_view_set_search_column(GTK_TREE_VIEW(view), 2);
 
   /* go thru list of iop modules and add them to the list */
-  GList *modules = g_list_last(darktable.iop);
+  GList *modules = g_list_last(darktable.develop->iop);
 
   char datadir[PATH_MAX] = { 0 };
   dt_loc_get_datadir(datadir, sizeof(datadir));
 
   while(modules)
   {
-    dt_iop_module_so_t *module = (dt_iop_module_so_t *)(modules->data);
-    if(!dt_iop_so_is_hidden(module) && !(module->flags() & IOP_FLAGS_DEPRECATED))
+    dt_iop_module_t *module = (dt_iop_module_t *)(modules->data);
+
+    if(display_module(module))
     {
       GdkPixbuf *pixbuf;
       char filename[PATH_MAX] = { 0 };
 
-      snprintf(filename, sizeof(filename), "%s/pixmaps/plugins/darkroom/%s.svg", datadir, module->op);
+      snprintf(filename, sizeof(filename), "%s/pixmaps/plugins/darkroom/%s.svg", datadir, module->so->op);
       pixbuf = load_image(filename);
       if(pixbuf) goto end;
 
-      snprintf(filename, sizeof(filename), "%s/pixmaps/plugins/darkroom/%s.png", datadir, module->op);
+      snprintf(filename, sizeof(filename), "%s/pixmaps/plugins/darkroom/%s.png", datadir, module->so->op);
       pixbuf = load_image(filename);
       if(pixbuf) goto end;
 
@@ -270,7 +282,7 @@ static void _lib_modulelist_populate_callback(gpointer instance, gpointer user_d
     end:
       gtk_list_store_append(store, &iter);
       gtk_list_store_set(store, &iter, COL_IMAGE, pixbuf, COL_MODULE, module,
-                         COL_DESCRIPTION, module->description ? module->description() : module->name(), -1);
+                         COL_DESCRIPTION, module->so->description ? module->so->description() : module->so->name(), -1);
       g_object_unref(pixbuf);
     }
 
@@ -285,7 +297,7 @@ static void _lib_modulelist_style_set(GtkWidget *widget, GtkStyle *previous_styl
 
 static void _lib_modulelist_row_changed_callback(GtkTreeView *treeview, gpointer user_data)
 {
-  dt_iop_module_so_t *module;
+  dt_iop_module_t *module;
   GtkTreeIter iter;
   GtkTreeModel *model;
   GtkTreePath *path;
@@ -299,8 +311,8 @@ static void _lib_modulelist_row_changed_callback(GtkTreeView *treeview, gpointer
     gtk_tree_path_free(path);
     gtk_tree_model_get(model, &iter, COL_MODULE, &module, -1);
 
-    dt_iop_so_gui_set_state(module, (module->state + 1) % dt_iop_state_LAST);
-    if(module->state == dt_iop_state_FAVORITE)
+    dt_iop_gui_set_state(module, (module->so->state + 1) % dt_iop_state_LAST);
+    if(module->so->state == dt_iop_state_FAVORITE)
       dt_dev_modulegroups_set(darktable.develop, DT_MODULEGROUP_FAVORITES);
   }
 }
@@ -312,22 +324,23 @@ static void _lib_modulelist_gui_update(struct dt_lib_module_t *module)
 
 static gint _lib_modulelist_gui_sort(GtkTreeModel *model, GtkTreeIter *a, GtkTreeIter *b, gpointer userdata)
 {
-  dt_iop_module_so_t *modulea, *moduleb;
+  dt_iop_module_t *modulea, *moduleb;
   gtk_tree_model_get(model, a, COL_MODULE, &modulea, -1);
   gtk_tree_model_get(model, b, COL_MODULE, &moduleb, -1);
-  return g_utf8_collate(modulea->name(), moduleb->name());
+  return g_utf8_collate(modulea->so->name(), moduleb->so->name());
 }
 
 static char *gen_params(char state, int *size, char *names)
 {
   int len = 0;
   char *params = NULL;
-  for(GList *iter = g_list_first(darktable.iop); iter; iter = g_list_next(iter))
+  for(GList *iter = g_list_first(darktable.develop->iop); iter; iter = g_list_next(iter))
   {
-    dt_iop_module_so_t *module = (dt_iop_module_so_t *)iter->data;
+    dt_iop_module_t *module = (dt_iop_module_t *)iter->data;
+
     // skip modules not in the list
-    if(dt_iop_so_is_hidden(module) || (module->flags() & IOP_FLAGS_DEPRECATED)) continue;
-    int op_len = strlen(module->op) + 1;
+    if(!display_module(module)) continue;
+    int op_len = strlen(module->so->op) + 1;
     int new_len = len + 1 + op_len;
     char *tmp = realloc(params, new_len);
     if(!tmp)
@@ -341,7 +354,7 @@ static char *gen_params(char state, int *size, char *names)
     {
       params = tmp;
     }
-    memcpy(params + len, module->op, op_len);
+    memcpy(params + len, module->so->op, op_len);
     char *pattern = g_strdup_printf("|%s|", module->op);
     params[new_len - 1] = (names==NULL ? state : strstr(names, pattern)!=NULL);
     g_free(pattern);
@@ -497,12 +510,12 @@ void *get_params(dt_lib_module_t *self, int *size)
 {
   int len = 0;
   char *params = NULL;
-  for(GList *iter = g_list_first(darktable.iop); iter; iter = g_list_next(iter))
+  for(GList *iter = g_list_first(darktable.develop->iop); iter; iter = g_list_next(iter))
   {
-    dt_iop_module_so_t *module = (dt_iop_module_so_t *)iter->data;
+    dt_iop_module_t *module = (dt_iop_module_t *)iter->data;
     // skip modules not in the list
-    if(dt_iop_so_is_hidden(module) || (module->flags() & IOP_FLAGS_DEPRECATED)) continue;
-    int op_len = strlen(module->op) + 1;
+    if(!display_module(module)) continue;
+    int op_len = strlen(module->so->op) + 1;
     int new_len = len + 1 + op_len;
     char *tmp = realloc(params, new_len);
     if(!tmp)
@@ -516,8 +529,8 @@ void *get_params(dt_lib_module_t *self, int *size)
     {
       params = tmp;
     }
-    memcpy(params + len, module->op, op_len);
-    params[new_len - 1] = (char)module->state;
+    memcpy(params + len, module->so->op, op_len);
+    params[new_len - 1] = (char)module->so->state;
     len = new_len;
   }
 
@@ -536,12 +549,12 @@ int set_params(dt_lib_module_t *self, const void *params, int size)
     dt_iop_module_state_t state = p[pos + op_len + 1];
 
     // look for the module in the list and ignore it if it's missing
-    for(GList *iter = g_list_first(darktable.iop); iter; iter = g_list_next(iter))
+    for(GList *iter = g_list_first(darktable.develop->iop); iter; iter = g_list_next(iter))
     {
-      dt_iop_module_so_t *module = (dt_iop_module_so_t *)iter->data;
+      dt_iop_module_t *module = (dt_iop_module_t *)iter->data;
       if(!g_strcmp0(op, module->op))
       {
-        dt_iop_so_gui_set_state(module, state);
+        dt_iop_gui_set_state(module, state);
         break;
       }
     }
