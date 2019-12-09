@@ -70,8 +70,8 @@ typedef struct dt_iop_doctor_params_t
   int scales, iterations;
   float luma_strength, luma_feathering, luma_offset;
   float chroma_strength, chroma_feathering, chroma_offset;
-  float fringes_strength, fringes_feathering, fringes_offset;
-  float sharpness_strength, sharpness_feathering, sharpness_offset;
+  float fringes_strength, fringes_feathering, fringes_offset, fringes_regularization;
+  float sharpness_strength, sharpness_feathering, sharpness_offset, sharpness_width, dof_sensitivity;
   float highlight_clipping, lowlight_clipping, structure_threshold, update_speed;
   int reconstruct_iterations;
 } dt_iop_doctor_params_t;
@@ -82,9 +82,9 @@ typedef struct dt_iop_doctor_gui_data_t
   GtkWidget *scales, *iterations;
   GtkWidget *luma_feathering, *luma_strength, *luma_offset;
   GtkWidget *chroma_feathering, *chroma_strength, *chroma_offset;
-  GtkWidget *fringes_feathering, *fringes_strength, *fringes_offset;
+  GtkWidget *fringes_feathering, *fringes_strength, *fringes_offset, *fringes_regularization;
   GtkWidget *highlight_clipping, *lowlight_clipping;
-  GtkWidget *sharpness_feathering, *sharpness_strength, *sharpness_offset;
+  GtkWidget *sharpness_feathering, *sharpness_strength, *sharpness_offset, *sharpness_width, *dof_sensitivity;
   GtkWidget *structure_threshold, *update_speed, *reconstruct_iterations;
 } dt_iop_doctor_gui_data_t;
 
@@ -136,197 +136,246 @@ static inline float clamp(const float x)
   return fmaxf(fminf(x, 1.0f), -1.0f);
 }
 
-static inline void denoise_chroma(float *const image[3], float *const residual_out[3],
+
+#ifdef _OPENMP
+#pragma omp declare simd aligned(image:64) uniform(image)
+#endif
+static inline float total_variation(const float *const image, const size_t index[5], const float eps)
+{
+  return 2.0f * (-4.0f * image[index[0]] + image[index[1]] + image[index[2]] + image[index[3]] + image[index[4]]) /
+                  (hypotf(image[index[0]] - image[index[1]], image[index[0]] - image[index[3]]) +
+                    hypotf(image[index[2]] - image[index[0]], image[index[4]] - image[index[0]]) + eps);
+}
+
+
+#ifdef _OPENMP
+#pragma omp declare simd
+#endif
+static inline void get_indices(const size_t i, const size_t j, const size_t width, const size_t height, size_t index[5])
+{
+  index[0] = i * width + j;       // center
+  index[1] = (i - 1) * width + j; // north
+  index[2] = (i + 1) * width + j; // south
+  index[3] = i * width + j - 1;   // west
+  index[4] = i * width + j + 1;   // east
+}
+
+
+static inline void denoise_chroma(float *const image[3], float *const temp_buffer[4],
                                   const size_t width, const size_t height,
                                   const int radius, const float scale,
                                   const float chroma_feathering, const float chroma_strength)
 {
+  float b = chroma_strength;
+
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
-dt_omp_firstprivate(image, residual_out, height, width) \
-schedule(static) collapse(2) aligned(residual_out, image:64)
+dt_omp_firstprivate(image, temp_buffer, height, width) \
+schedule(static) collapse(2) aligned(temp_buffer, image:64)
 #endif
   for(size_t i = 0; i < height; ++i)
     for(size_t j = 0; j < width; ++j)
     {
       const size_t index = i * width + j;
-      residual_out[0][index] = image[1][index] - image[0][index]; // G - R
-      residual_out[1][index] = image[0][index] - image[1][index]; // R - G
-      residual_out[2][index] = image[1][index] - image[2][index]; // G - B
-      residual_out[3][index] = image[2][index] - image[1][index]; // B - G
+      temp_buffer[0][index] = image[1][index] - image[0][index]; // G - R
+      temp_buffer[1][index] = image[1][index] - image[2][index]; // G - B
     }
 
-  for(int c = 0; c < 4; ++c)
-    fast_guided_filter_rgb(residual_out[c], residual_out[c], residual_out[c], width, height, 1, radius, chroma_feathering, scale, FALSE);
-
-  const float b = chroma_strength;
-  const float a = 1.0f - b;
+  fast_guided_filter_rgb(temp_buffer[0], temp_buffer[0], temp_buffer[2], width, height, 1, radius, chroma_feathering, scale, FALSE);
+  fast_guided_filter_rgb(temp_buffer[1], temp_buffer[1], temp_buffer[3], width, height, 1, radius, chroma_feathering, scale, FALSE);
 
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
-dt_omp_firstprivate(image, residual_out, height, width, a, b) \
-schedule(static) collapse(2) aligned(residual_out, image:64)
+dt_omp_firstprivate(image, temp_buffer, height, width, b) \
+schedule(static) collapse(2) aligned(temp_buffer, image:64)
 #endif
   for(size_t i = 0; i < height; ++i)
     for(size_t j = 0; j < width; ++j)
     {
       const size_t index = i * width + j;
-      const float R = image[0][index];
-      const float G = image[1][index];
-      const float B = image[2][index];
-      image[0][index] = a * R + b * (G - clamp(residual_out[0][index]));
-      image[1][index] = a * G + b * (R - clamp(residual_out[1][index]) + B - clamp(residual_out[3][index])) / 2.0f;
-      image[2][index] = a * B + b * (G - clamp(residual_out[2][index]));
+
+      const float GR = temp_buffer[0][index]; // G - R
+      const float GB = temp_buffer[1][index]; // G - B
+
+      const float LF_GR = temp_buffer[2][index];
+      const float LF_GB = temp_buffer[3][index];
+
+      const float HF_GR = b * (GR - LF_GR);
+      const float HF_GB = b * (GB - LF_GB);
+
+      image[0][index] += HF_GR;
+      image[1][index] -= (HF_GR + HF_GB) / 2.0f;
+      image[2][index] += HF_GB;
+    }
+
+  fast_guided_filter_rgb(temp_buffer[2], temp_buffer[2], temp_buffer[0], width, height, 1, radius, chroma_feathering, scale, FALSE);
+  fast_guided_filter_rgb(temp_buffer[3], temp_buffer[3], temp_buffer[1], width, height, 1, radius, chroma_feathering, scale, FALSE);
+
+#ifdef _OPENMP
+#pragma omp parallel for simd default(none) \
+dt_omp_firstprivate(image, temp_buffer, height, width, b) \
+schedule(static) collapse(2) aligned(temp_buffer, image:64)
+#endif
+  for(size_t i = 0; i < height; ++i)
+    for(size_t j = 0; j < width; ++j)
+    {
+      const size_t index = i * width + j;
+
+      const float GR = temp_buffer[2][index]; // G - R
+      const float GB = temp_buffer[3][index]; // G - B
+
+      const float LF_GR = temp_buffer[0][index];
+      const float LF_GB = temp_buffer[1][index];
+
+      const float HF_GR = b * (GR - LF_GR);
+      const float HF_GB = b * (GB - LF_GB);
+
+      image[0][index] += HF_GR;
+      image[1][index] -= (HF_GR + HF_GB) / 2.0f;
+      image[2][index] += HF_GB;
     }
 }
 
 
-static inline void denoise_chroma_crossed(float *const image[3], float *const residual_out[3],
+static inline void denoise_chroma_crossed(float *const image[3], float *const temp_buffer[4],
                                           const size_t width, const size_t height,
                                           const int radius, const float scale,
                                           const float chroma_feathering, const float chroma_strength)
 {
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
-dt_omp_firstprivate(image, residual_out, height, width) \
-schedule(static) collapse(2) aligned(residual_out, image:64)
+dt_omp_firstprivate(image, temp_buffer, height, width) \
+schedule(static) collapse(2) aligned(temp_buffer, image:64)
 #endif
   for(size_t i = 0; i < height; ++i)
     for(size_t j = 0; j < width; ++j)
     {
       const size_t index = i * width + j;
-      residual_out[0][index] = image[1][index] - image[0][index]; // G - R
-      residual_out[1][index] = image[0][index] - image[1][index]; // R - G
-      residual_out[2][index] = image[1][index] - image[2][index]; // G - B
-      residual_out[3][index] = image[2][index] - image[1][index]; // B - G
+      temp_buffer[0][index] = image[1][index] - image[0][index]; // G - R
+      temp_buffer[1][index] = image[1][index] - image[2][index]; // G - B
     }
 
-  float *const tmp[4] = { dt_alloc_sse_ps(width * height),
-                          dt_alloc_sse_ps(width * height),
-                          dt_alloc_sse_ps(width * height),
-                          dt_alloc_sse_ps(width * height)};
+  fast_guided_filter_rgb(temp_buffer[0], temp_buffer[1], temp_buffer[2], width, height, 1, radius, chroma_feathering, scale, FALSE);
+  fast_guided_filter_rgb(temp_buffer[1], temp_buffer[0], temp_buffer[3], width, height, 1, radius, chroma_feathering, scale, FALSE);
 
-
-  fast_guided_filter_rgb(residual_out[0], residual_out[2], tmp[0], width, height, 1, radius, chroma_feathering, scale, FALSE);
-  fast_guided_filter_rgb(residual_out[1], residual_out[3], tmp[1], width, height, 1, radius, chroma_feathering, scale, FALSE);
-  fast_guided_filter_rgb(residual_out[2], residual_out[0], tmp[2], width, height, 1, radius, chroma_feathering, scale, FALSE);
-  fast_guided_filter_rgb(residual_out[3], residual_out[1], tmp[3], width, height, 1, radius, chroma_feathering, scale, FALSE);
-
-  const float b = chroma_strength;
-  const float a = 1.0f - b;
+  const float b = chroma_strength / 2.0f;
 
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
-dt_omp_firstprivate(image, residual_out, tmp, height, width, a, b) \
-schedule(static) collapse(2) aligned(tmp, residual_out, image:64)
+dt_omp_firstprivate(image, temp_buffer, height, width, b) \
+schedule(static) collapse(2) aligned(temp_buffer, image:64)
 #endif
   for(size_t i = 0; i < height; ++i)
     for(size_t j = 0; j < width; ++j)
     {
       const size_t index = i * width + j;
-      const float R = image[0][index];
-      const float G = image[1][index];
-      const float B = image[2][index];
-      image[0][index] = a * R + b * (G - residual_out[0][index] + b * clamp(tmp[0][index]) / 2.0f);
-      image[1][index] = a * G + b * (R - residual_out[1][index] + b * clamp(tmp[1][index]) / 2.0f + B - residual_out[3][index] + b * clamp(tmp[3][index]) / 2.0f) / 2.0f;
-      image[2][index] = a * B + b * (G - residual_out[2][index] + b * clamp(tmp[2][index]) / 2.0f);
-    }
 
-  for(int c = 0; c < 3; c++)
-    dt_free_align(tmp[c]);
+      const float GR = temp_buffer[0][index]; // G - R
+      const float GB = temp_buffer[1][index]; // G - B
+
+      const float LF_GR = temp_buffer[2][index];
+      const float LF_GB = temp_buffer[3][index];
+
+      const float HF_GR = b * (GR - LF_GR);
+      const float HF_GB = b * (GB - LF_GB);
+
+      image[0][index] += HF_GR;
+      image[1][index] -= (HF_GR + HF_GB) / 2.0f;
+      image[2][index] += HF_GB;
+    }
 }
 
-static void heat_PDE_inpanting(float *const image[3], float *const residual_out[3], int *const mask[3],
+static void heat_PDE_inpanting(float *const image[3], float *const mask[3],
                                const size_t width, const size_t height,
-                               const int zut, const int iterations,
+                               const int iterations,
                                const float structure_threshold, const float update_speed)
 {
   // Simultaneous inpainting for image structure and texture using anisotropic heat transfer model
   // https://www.researchgate.net/publication/220663968
 
+  // Discretization parameters for the Partial Derivative Equation solver
+  const size_t h = 1;          // spatial step
+  const float kappa = 0.25f;    // 0.25 if h = 1, 1 if h = 2
+
   float A = structure_threshold / 100.0f;
   float B = (1.0f - A) * 0.25f;
-  //A *= 0.1f;
-  //B *= 0.1f;
-  const float K = update_speed * 2.0f;
+  A *= update_speed * kappa;
+  B *= update_speed;
+  const float K = 2.0f;
+
+  const int run_structure = (A > 0.0f);
+  const int run_texture = (B > 0.0f);
 
   float *const tmp = dt_alloc_sse_ps(width * height);
+  float *const update = dt_alloc_sse_ps(width * height);
 
-  for(size_t chan = 0; chan < 3; chan++)
+  for(int chan = 0; chan < 3; ++chan)
   {
-  // Initialize the masked area with random noise (plant seeds for diffusion)
-  // From :
-  //    Nontexture Inpainting by Curvature-Driven Diffusions
-  //    Tony F. Chan, Jackie Jianhong Shen
-  //    https://conservancy.umn.edu/bitstream/handle/11299/3528/1743.pdf?sequence=1
+    // Initialize the masked area with random noise (plant seeds for diffusion)
+    // From :
+    //    Nontexture Inpainting by Curvature-Driven Diffusions
+    //    Tony F. Chan, Jackie Jianhong Shen
+    //    https://conservancy.umn.edu/bitstream/handle/11299/3528/1743.pdf?sequence=1
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
-dt_omp_firstprivate(mask, tmp, image, height, width, chan, A) \
-schedule(static) collapse(2) aligned(residual_out, image, tmp, mask:64)
+dt_omp_firstprivate(mask, image, tmp, height, width, chan) \
+schedule(static) collapse(2) aligned(tmp, mask, image:64)
 #endif
     for(size_t i = 0; i < height; ++i)
       for(size_t j = 0; j < width; ++j)
       {
         const size_t index = i * width + j;
-        tmp[index] = (mask[chan][index]) ? image[chan][index] + (0.5f - ((float)rand() / (float)RAND_MAX)) * 0.5f
-                                         : image[chan][index];
+        tmp[index] = image[chan][index] + mask[chan][index] * (0.5f - ((float)rand() / (float)RAND_MAX)) * 0.5f;
       }
 
-  // BEGINNING OF ITERATIONS
-
-    int radius = 1;
-
+    // BEGINNING OF ITERATIONS
     for(int iter = 0; iter < iterations; iter++)
     {
-      radius += 1;
-      if(radius > 24) radius = 1;
+      //const int radius = 2 + (iter % 2) + (iter % 4) + (iter % 8);
+      const size_t radius = 1;
 
 #ifdef _OPENMP
 #pragma omp parallel for default(none) \
-dt_omp_firstprivate(tmp, mask, residual_out, height, width, chan, K, iter, A, B, radius) \
+dt_omp_firstprivate(tmp, update, mask, height, width, K, iter, A, B, radius, run_structure, run_texture, h, chan) \
 schedule(dynamic) collapse(2)
 #endif
       for(size_t i = 2 + radius; i < height - 2 - radius; ++i)
         for(size_t j = 2 + radius; j < width - 2 - radius; ++j)
         {
           const size_t index = i * width + j;
-          if(mask[chan][index])
+          float update_index = 0.0f;
+
+          if(mask[chan][index] > 0.0f)
           {
-            float Delta_u_s = 0.0f;
-            float Delta_u_t = 0.0f;
-
-            // Discretization parameters for the Partial Derivative Equation solver
-            const size_t h = 1;          // spatial step
-            const float kappa = 0.25f; // depends on the spatial step
-            const float det = kappa / sqf((float)h);
-
+            // Cache the useful pixels
             const float u_n = tmp[index]; // center pixel u(i, j)
 
-            const float u[8] DT_ALIGNED_PIXEL = { tmp[(i - h) * width + (j - h)],
-                                                  tmp[(i) * width + (j - h)],
-                                                  tmp[(i + h) * width + (j - h)],
-                                                  tmp[(i - h) * width + (j)],
-                                                  // tmp[(i) * width + (j)] : u(i, j) -> special handling
-                                                  tmp[(i + h) * width + (j)],
-                                                  tmp[(i - h) * width + (j + h)],
-                                                  tmp[(i) * width + (j + h)],
-                                                  tmp[(i + h) * width + (j + h)] };
+            // neighbours
+            const size_t j_prev = j - h; // x
+            const size_t j_next = j + h; // x
+            const size_t j_spot = j;
+            const size_t i_prev = (i - h) * width; // y
+            const size_t i_next = (i + h) * width; // y
+            const size_t i_spot = i * width;
+            const float u[8] DT_ALIGNED_PIXEL = { tmp[i_prev + j_prev], tmp[i_prev + j_spot], tmp[i_prev + j_next],
+                                                  tmp[i_spot + j_prev],                       tmp[i_spot + j_next],
+                                                  tmp[i_next + j_prev], tmp[i_next + j_spot], tmp[i_next + j_next] };
 
             // Compute the gradient with centered finite differences
-            const float grad_y = (tmp[(i + h) * width + j] - tmp[(i - h) * width + j]) / (2.0f * (float)h); // du(i, j) / dy
-            const float grad_x = (tmp[(i) * width + (j + h)] - tmp[(i) * width + (j - h)]) / (2.0f * (float)h); // du(i, j) / dx
+            const float grad_y = (u[4] - u[5]) / 2.0f; // du(i, j) / dy
+            const float grad_x = (u[6] - u[1]) / 2.0f; // du(i, j) / dx
 
             // Find the direction of the gradient
             const float theta = atan2f(grad_y, grad_x);
             const float sin_theta = sinf(theta);
-            const float sin_theta2 = sqf(sin_theta);
             const float cos_theta = cosf(theta);
-            const float cos_theta2 = sqf(cos_theta);
-
 
             // Structure extraction : probably not needed for highlights recovery
-            if(A > 0.0f)
+            if(run_structure)
             {
+              const float sin_theta2 = sqf(sin_theta);
+              const float cos_theta2 = sqf(cos_theta);
+
               // Find the dampening factor
               const float c = expf(-hypotf(grad_x, grad_y) / K);
               const float c2 = sqf(c);
@@ -343,9 +392,10 @@ schedule(dynamic) collapse(2)
                                                        a11,      a11, // b22 -> special handling
                                                        b13, a22, b11 };
 
+
               // Note : b22 and u(i, j) are handled apart and used in reductions initialization
               // so u and kern are full SSE3 vectors
-              Delta_u_s += -2.0f * (a11 + a22) * u_n;
+              float Delta_u_s = -2.0f * (a11 + a22) * u_n;
 
               // Convolve
 #ifdef _OPENMP
@@ -354,11 +404,11 @@ schedule(dynamic) collapse(2)
               for(size_t ki = 0; ki < 8; ki++)
                 Delta_u_s += kern[ki] * u[ki];
 
-              Delta_u_s *= det;
+              update_index += A * Delta_u_s;
             }
 
             // Texture extraction
-            if(B > 0.0f)
+            if(run_texture)
             {
               // Find alpha, the principal direction of the grad(grad(u(i,j))
               // NOTE : derivating a 2D vector in the euclidian plane is equivalent to a +pi/2 rotation
@@ -370,8 +420,8 @@ schedule(dynamic) collapse(2)
 
               // Compute the corners of the texture searching window oriented in the principal
               // direction of the grad
-              const int dx = roundf((float)radius * (-sin_theta));
-              const int dy = roundf((float)radius * cos_theta);
+              const int dx = (int)CLAMP((int)(-(float)radius * sin_theta), -radius, radius);
+              const int dy = (int)CLAMP((int)((float)radius * cos_theta), -radius, radius);
 
               const float du_dzeta = (tmp[(i - dx) * width + (j + dy)]
                                     + tmp[(i + dx) * width + (j - dy)])
@@ -380,48 +430,46 @@ schedule(dynamic) collapse(2)
                                   + tmp[(i - dy) * width + (j - dx)])
                                   - 2.0f * u_n;
 
-              Delta_u_t += (du_dzeta + du_eta);
+              update_index += B * (du_dzeta + du_eta);
             }
-
-            residual_out[chan][index] = A * Delta_u_s + B * Delta_u_t;
           }
+
+          update[index] = update_index;
+
         }
 
-
-  // Update the current reconstructed image
+  // Update the current reconstructed image with alpha blending
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
-dt_omp_firstprivate(tmp, mask, residual_out, height, width, chan, radius) \
-schedule(static) collapse(2) aligned(tmp, mask, residual_out:64)
+dt_omp_firstprivate(tmp, mask, update, height, width, radius, chan) \
+schedule(static) collapse(2) aligned(tmp, mask, update:64)
 #endif
       for(size_t i = 2 + radius; i < height - 2 - radius; ++i)
         for(size_t j = 2 + radius; j < width - 2 - radius; ++j)
         {
           const size_t index = i * width + j;
-          if(mask[chan][index])
-            tmp[index] += residual_out[chan][index];
+          tmp[index] += mask[chan][index] * update[index];
         }
     }
 
     // END OF ITERATIONS
 
-    // Copy solution and cleanup
+    // Copy solution with alpha blending
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
-dt_omp_firstprivate(mask, tmp, image, height, width, chan, A) \
-schedule(static) collapse(2) aligned(residual_out, tmp, mask, image:64)
+dt_omp_firstprivate(mask, tmp, image, height, width, chan) \
+schedule(static) collapse(2) aligned(tmp, mask, image:64)
 #endif
-    for(size_t i = 0; i < height; ++i)
-      for(size_t j = 0; j < width; ++j)
-      {
-        const size_t index = i * width + j;
-        image[chan][index] = (mask[chan][index]) ? tmp[index]
-                                                 : image[chan][index];
-      }
+      for(size_t i = 0; i < height; ++i)
+        for(size_t j = 0; j < width; ++j)
+        {
+          const size_t index = i * width + j;
+          image[chan][index] = mask[chan][index] * tmp[index] + (1.0f - mask[chan][index]) * image[chan][index];
+        }
   }
 
   dt_free_align(tmp);
-
+  dt_free_align(update);
 }
 
 void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece,
@@ -455,90 +503,57 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece,
                               dt_alloc_sse_ps(width * height),
                               dt_alloc_sse_ps(width * height) };
 
-  int *const mask[3] = { dt_alloc_align(64, width * height * sizeof(int)),
-                         dt_alloc_align(64, width * height * sizeof(int)),
-                         dt_alloc_align(64, width * height * sizeof(int)) };
+  float *const mask[3] = { dt_alloc_sse_ps(width * height),
+                           dt_alloc_sse_ps(width * height),
+                           dt_alloc_sse_ps(width * height) };
 
   float *const restrict luma = dt_alloc_sse_ps(width * height);
   float *const restrict luma_low_freq = dt_alloc_sse_ps(width * height);
   float *const restrict luma_high_freq = dt_alloc_sse_ps(width * height);
 
   const float epsilon = 100.0f;
-  const float fringes_strength = d->fringes_strength / epsilon / d->iterations;
-  const float sharpness_strength = d->sharpness_strength / epsilon / d->iterations;
-  const float chroma_strength = d->chroma_strength / epsilon / d->iterations;
+
+  const float fringes_first_order = powf(10.f, -2.0f * d->fringes_regularization);
+  const float fringes_second_order = powf(10.f, -2.0f * d->fringes_strength);
+
+  const float sharpness_strength = d->sharpness_strength / epsilon;
+  const float chroma_strength = d->chroma_strength / epsilon;
+  const float luma_strength = d->luma_strength / epsilon;
 
   const float highlight_clipping = d->highlight_clipping / 100.0f;
-  //const float lowlight_clipping = exp2f(d->lowlight_clipping);
+  const float lowlight_clipping = exp2f(d->lowlight_clipping);
 
   const int run_chroma = (chroma_strength != 0.0f);
-  //const int run_luma = (luma_strength != 0.0f);
-  const int run_fringes = (fringes_strength != 0.0f);
+  const int run_luma = (luma_strength != 0.0f);
+  const int run_fringes = TRUE;
   const int run_sharpness = (sharpness_strength != 0.0f);
 
-
-  // Peel the array of structs into RGB layers (struct of arrays) and search for clipped pixels
-  int mask_number = 0;
-
-  const size_t i_max =  height / 2 + 20;
-  const size_t i_min = height / 2 - 20;
-  const size_t j_min = width / 2 - 10;
-  const size_t j_max = width / 2 + 10;
-
+  // Peel the array of structs into RGB layers (struct of arrays)
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
-dt_omp_firstprivate(out_RGB, in_RGB, mask, in, height, width, ch, highlight_clipping, i_min, i_max, j_min, j_max) \
-schedule(static) collapse(3) reduction(+:mask_number) aligned(mask, out_RGB, in_RGB, in:64)
+dt_omp_firstprivate(out_RGB, in_RGB, in, height, width, ch, piece) \
+schedule(static) collapse(3) aligned(out_RGB, in_RGB, in:64)
 #endif
   for(size_t i = 0; i < height; ++i)
     for(size_t j = 0; j < width; ++j)
       for(size_t c = 0; c < 3; c++)
       {
         const size_t index = (i * width + j);
-        const int masked = (FALSE && (i > i_min) && (i < i_max) && (j < j_max) && (j > j_min));
         in_RGB[c][index] = out_RGB[c][index] = in[index * ch + c];
-        mask[c][index] = ((in[index * ch + c] > highlight_clipping) || masked);
-        mask_number += mask[c][index];
       }
 
-  // Apply a uniform blur on clipped areas to avoid sharp transitions between
-  // non-clipped and clipped areas
-  //for(size_t c = 0; c < 3; c++)
-  // box_average(out_RGB[c], width, height, 1, MAX(1, d->scales / piece->iscale * roi_in->scale));
+  const float sharpness_step = (d->scales > 1) ? (d->sharpness_offset - d->sharpness_feathering) / ((float)d->scales - 1.0f) : 0.0f;
 
-  // Restore data where it doesn't clip and add gaussian noise in clipped areas to simulate texture
-  /*
-#ifdef _OPENMP
-#pragma omp parallel for simd default(none) \
-dt_omp_firstprivate(out_RGB, in_RGB, mask, in, height, width) \
-schedule(dynamic) collapse(3) reduction(+:mask_number) aligned(mask, out_RGB, in_RGB:64)
-#endif
-  for(size_t i = 0; i < height; ++i)
-    for(size_t j = 0; j < width; ++j)
-      for(size_t c = 0; c < 3; c++)
-      {
-        const size_t index = (i * width + j);
-        if(mask[c][index])
-          out_RGB[c][index] *= 1.0f - sqf((float)rand() / (float)RAND_MAX) / 10.0f;
-        else
-          out_RGB[c][index] = in_RGB[c][index];
-      }
-*/
   for(int k = 0; k < d->scales; k++)
   {
-    //const float luma_feathering = 1.f / powf(10.f, 2.0f * d->luma_feathering);
-    //const float luma_strength = d->luma_strength /  epsilon;
-
+    const float luma_feathering = powf(10.f, -2.0f * d->luma_feathering);
     const float chroma_feathering = powf(10.f, -2.0f * (d->chroma_feathering + k * d->chroma_offset));
     const float fringes_feathering = powf(10.f, -2.0f * (d->fringes_feathering + k * d->fringes_offset));
-    const float sharpness_feathering_low = powf(10.f, -2.0f * (d->sharpness_feathering + k * d->sharpness_offset));
-    const float sharpness_feathering_high = powf(10.f, -2.0f * (d->sharpness_feathering + k * d->sharpness_offset) - 1.f);
+    const float sharpness_feathering_low = powf(10.f, -2.0f * (d->sharpness_feathering + k * sharpness_step));
+    const float sharpness_denoise = powf(10.f, -2.0f * d->sharpness_width);
 
     // At each size iteration, we increase the width of the guided filter window
     const int radius = MAX(1, (k + 1) / piece->iscale * roi_in->scale);
-
-    // At each size iteration, we decrease the width of the inpainting texture searching window
-    const int distance = MAX(1, (d->iterations - k) / piece->iscale * roi_in->scale);
 
     float scale;
     if(radius % 4 == 0)
@@ -550,15 +565,8 @@ schedule(dynamic) collapse(3) reduction(+:mask_number) aligned(mask, out_RGB, in
     else
       scale = 1.f;
 
-    if(mask_number > 0 && d->reconstruct_iterations > 0)
-      heat_PDE_inpanting(out_RGB, residual_out, mask, width, height, distance,
-                            d->reconstruct_iterations, d->structure_threshold, d->update_speed);
-
-
     for(int outer_iter = 0; outer_iter < d->iterations; outer_iter++)
     {
-      if(run_chroma)
-        denoise_chroma(out_RGB, residual_out, width, height, scale, radius, chroma_feathering, chroma_strength);
 
       if(run_fringes)
       {
@@ -566,13 +574,17 @@ schedule(dynamic) collapse(3) reduction(+:mask_number) aligned(mask, out_RGB, in
         // MULTISPECTRAL DEMOSAICKING WITH NOVEL GUIDE IMAGE GENERATIONAND RESIDUAL INTERPOLATION
         // Yusuke Monno, Daisuke Kiku, Sunao Kikuchi, Masayuki Tanaka, and Masatoshi Okutomi
         // https://projet.liris.cnrs.fr/imagine/pub/proceedings/ICIP-2014/Papers/1569909365.pdf
-        for(size_t c = 0; c < 3; c++)
-          fast_guided_filter_rgb(out_RGB[c], out_RGB[1], residual_out[c], width, height, 1, radius, fringes_feathering, scale, TRUE);
 
+        // Get the RGB low frequencies
+        fast_guided_filter_rgb(out_RGB[0], out_RGB[1], residual_out[0], width, height, 1, radius, fringes_feathering, scale, TRUE);
+        fast_guided_filter_rgb(out_RGB[2], out_RGB[1], residual_out[2], width, height, 1, radius, fringes_feathering, scale, TRUE);
+        fast_guided_filter_rgb(out_RGB[1], out_RGB[1], residual_out[1], width, height, 1, radius, fringes_feathering, scale, TRUE);
+
+        // Get the RGB high frequencies
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
-dt_omp_firstprivate(out_RGB, RGB_high_freq, residual_out, luma, height, width, ch, fringes_strength) \
-schedule(static) collapse(3)
+dt_omp_firstprivate(out_RGB, RGB_high_freq, residual_out, luma, height, width, ch) \
+schedule(static) collapse(3) aligned(out_RGB, RGB_high_freq, residual_out:64)
 #endif
         for(size_t c = 0; c < 3; c++)
         {
@@ -586,13 +598,39 @@ schedule(static) collapse(3)
           }
         }
 
-        for(size_t c = 0; c < 3; c++)
-          fast_guided_filter_rgb(RGB_high_freq[c], RGB_high_freq[1], residual_out[c], width, height, 1, radius, fringes_feathering, scale, FALSE);
-
+        // Remove gradients (first order)
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
-dt_omp_firstprivate(out_RGB, RGB_high_freq, residual_out, luma, height, width, ch, fringes_strength) \
-schedule(static) collapse(3)
+dt_omp_firstprivate(out_RGB, RGB_high_freq, residual_out, luma_high_freq, height, width, ch, fringes_first_order) \
+schedule(static) collapse(2) aligned(out_RGB, RGB_high_freq, luma_high_freq, residual_out:64)
+#endif
+        for(size_t i = 0; i < height; ++i)
+          for(size_t j = 0; j < width; ++j)
+          {
+            const size_t index = i * width + j;
+
+            const float norm = 1.0f;// / sqrtf( sqf(RGB_high_freq[0][index]) + sqf(RGB_high_freq[1][index]) + sqf(RGB_high_freq[2][index]));
+
+            // Solve u = u + d(grad(u)) / d nu + lambda × TV in R
+            out_RGB[0][index] -= fringes_first_order * (RGB_high_freq[1][index] - RGB_high_freq[0][index]) * norm;
+
+            // Solve u = u + d(grad(u)) / d nu + lambda × TV in B
+            out_RGB[2][index] -= fringes_first_order * (RGB_high_freq[1][index] - RGB_high_freq[2][index]) * norm;
+
+            // Solve Solve u = u - d²(grad(u)) / d nu² + lambda × TV in G
+            out_RGB[1][index] += fringes_first_order * (RGB_high_freq[0][index] + RGB_high_freq[2][index] - 2.0f * RGB_high_freq[1][index]) * norm;
+          }
+
+        // Detect fringes - equivalent to a laplacian filter with edge-awareness
+        fast_guided_filter_rgb(RGB_high_freq[0], RGB_high_freq[1], residual_out[0], width, height, 1, radius, fringes_feathering, scale, FALSE);
+        fast_guided_filter_rgb(RGB_high_freq[2], RGB_high_freq[1], residual_out[2], width, height, 1, radius, fringes_feathering, scale, FALSE);
+        fast_guided_filter_rgb(RGB_high_freq[1], RGB_high_freq[1], residual_out[1], width, height, 1, radius, fringes_feathering, scale, FALSE);
+
+        // Get the RGB high frequencies
+#ifdef _OPENMP
+#pragma omp parallel for simd default(none) \
+dt_omp_firstprivate(out_RGB, RGB_high_freq, residual_out, luma, height, width, ch) \
+schedule(static) collapse(3) aligned(out_RGB, RGB_high_freq, residual_out:64)
 #endif
         for(size_t c = 0; c < 3; c++)
         {
@@ -601,45 +639,144 @@ schedule(static) collapse(3)
             for(size_t j = 0; j < width; ++j)
             {
               const size_t index = i * width + j;
-              out_RGB[c][index] += fringes_strength * residual_out[c][index];
+              RGB_high_freq[c][index] = RGB_high_freq[c][index] - residual_out[c][index];
             }
           }
         }
+
+        // Remove fringes (second order)
+#ifdef _OPENMP
+#pragma omp parallel for simd default(none) \
+dt_omp_firstprivate(out_RGB, RGB_high_freq, residual_out, luma_high_freq, height, width, ch, fringes_second_order) \
+schedule(static) collapse(2) aligned(out_RGB, RGB_high_freq, luma_high_freq, residual_out:64)
+#endif
+        for(size_t i = 0; i < height; ++i)
+          for(size_t j = 0; j < width; ++j)
+          {
+            const size_t index = i * width + j;
+
+            const float norm = 1.0f;// / sqrtf( sqf(RGB_high_freq[0][index]) + sqf(RGB_high_freq[1][index]) + sqf(RGB_high_freq[2][index]));
+
+            // Solve u = u + d(grad(u)) / d nu + lambda × TV in R
+            out_RGB[0][index] -= fringes_second_order * (RGB_high_freq[1][index] - RGB_high_freq[0][index]) * norm;
+
+            // Solve u = u + d(grad(u)) / d nu + lambda × TV in B
+            out_RGB[2][index] -= fringes_second_order * (RGB_high_freq[1][index] - RGB_high_freq[2][index]) * norm;
+
+            // Solve Solve u = u - d²(grad(u)) / d nu² + lambda × TV in G
+            out_RGB[1][index] += fringes_second_order * (RGB_high_freq[0][index] + RGB_high_freq[2][index] - 2.0f * RGB_high_freq[1][index]) * norm;
+          }
+
       }
+
+
+      if(run_chroma)
+        denoise_chroma(out_RGB, residual_out, width, height, scale, radius, chroma_feathering, chroma_strength);
+
+
+      if(run_luma)
+        denoise_chroma_crossed(out_RGB, residual_out, width, height, scale, radius, luma_feathering, luma_strength);
+
 
       if(run_sharpness)
       {
+        const float dof = d->dof_sensitivity / 100.0f;
+
         for(int c = 0; c < 3; c++)
         {
+          // Get the low pass 1 and lowpass 2,
           fast_guided_filter_rgb(out_RGB[c], out_RGB[c], residual_out[c], width, height, 1, radius, sharpness_feathering_low, scale, FALSE);
-          fast_guided_filter_rgb(out_RGB[c], out_RGB[c], RGB_high_freq[c], width, height, 1, radius, sharpness_feathering_high, scale, FALSE);
+          //fast_guided_filter_rgb(out_RGB[c], out_RGB[c], RGB_high_freq[c], width, height, 1, radius, sharpness_feathering_high, scale, FALSE);
+
+          // Compute the band-pass filter between the 2 corresponding high-pass filters.
+#ifdef _OPENMP
+#pragma omp parallel for simd default(none) \
+dt_omp_firstprivate(in_RGB, out_RGB, RGB_high_freq, residual_out, luma_high_freq, height, width, ch, sharpness_strength, c) \
+schedule(static) collapse(2) aligned(in_RGB, out_RGB, residual_out, RGB_high_freq, luma_high_freq:64)
+#endif
+          for(size_t i = 0; i < height; ++i)
+            for(size_t j = 0; j < width; ++j)
+            {
+              const size_t index = i * width + j;
+              in_RGB[c][index] = out_RGB[c][index] - residual_out[c][index];
+            }
+
+          // Get the alpha blending mask
+#ifdef _OPENMP
+#pragma omp parallel for simd default(none) \
+dt_omp_firstprivate(out_RGB, RGB_high_freq, luma_high_freq, residual_out, in_RGB, luma, mask, height, width, ch, sharpness_strength, c, dof) \
+schedule(static) collapse(2) aligned(out_RGB, residual_out, RGB_high_freq, luma, mask, in_RGB:64)
+#endif
+          for(size_t i = 0; i < height; ++i)
+            for(size_t j = 0; j < width; ++j)
+            {
+              const size_t index = i * width + j;
+              mask[c][index] = clamp(dof * (0.5f + sqf(in_RGB[c][index])) / 2.0f);
+            }
+
+          fast_guided_filter_rgb(mask[c], mask[c], mask[c], width, height, 1, radius, sharpness_feathering_low, scale, TRUE);
         }
+
+        // Apply the unsharp masking
+#ifdef _OPENMP
+#pragma omp parallel for simd default(none) \
+dt_omp_firstprivate(in_RGB, out_RGB, RGB_high_freq, residual_out, luma_high_freq, mask, luma, height, width, sharpness_strength, sharpness_denoise, radius) \
+schedule(static) collapse(2) aligned(out_RGB, in_RGB, RGB_high_freq, luma_high_freq, residual_out, luma, mask:64)
+#endif
+          for(size_t i = 1; i < height - 1; ++i)
+            for(size_t j = 1; j < width - 1; ++j)
+            {
+              size_t index[5];
+              get_indices(i, j, width, height, index);
+
+              const float eps = exp2f(-16.0f);
+
+              const float TV[3] = { total_variation(out_RGB[0], index, eps),
+                                    total_variation(out_RGB[1], index, eps),
+                                    total_variation(out_RGB[2], index, eps) };
+
+              const float TV_max = fmaxf(fmaxf(fabsf(TV[0]), fabsf(TV[1])), fabsf(TV[2]));
+              const float RGB_min = fminf(fminf(out_RGB[0][index[0]], out_RGB[1][index[0]]), out_RGB[2][index[0]]);
+              const float normalize = sharpness_denoise * RGB_min / TV_max;
+              const float divTV = normalize * (TV[0] + TV[1] + TV[2]) / sqrtf(sqf(TV[0]) + sqf(TV[1]) + sqf(TV[2]) + eps);
+
+              for(size_t c = 0; c < 3; c++)
+                out_RGB[c][index[0]] += sharpness_strength * mask[c][index[0]] * (in_RGB[c][index[0]] + divTV);
+            }
+
+      }
+    }
+  }
+
+  if(d->reconstruct_iterations > 0)
+  {
+    // limit to 80 iterations if we are in GUI to limit latency
+    int iter = (self->dev->gui_attached && d->reconstruct_iterations > 80) ? 80 : d->reconstruct_iterations;
 
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
-dt_omp_firstprivate(out_RGB, RGB_high_freq, residual_out, luma, height, width, ch, sharpness_strength) \
-schedule(static) collapse(3) aligned(out_RGB, residual_out:64)
+dt_omp_firstprivate(out_RGB, mask, height, width, highlight_clipping, lowlight_clipping, piece) \
+schedule(static) collapse(3) aligned(mask, out_RGB, in:64)
 #endif
-        for(size_t i = 0; i < height; ++i)
+    for(size_t c = 0; c < 3; c++)
+      for(size_t i = 0; i < height; ++i)
+        for(size_t j = 0; j < width; ++j)
         {
-          for(size_t j = 0; j < width; ++j)
-          {
-            for(size_t c = 0; c < 3; ++c)
-            {
-              const size_t index = i * width + j;
-              const float high_freq = 0.5f * out_RGB[c][index] - residual_out[c][index] + 0.5f * RGB_high_freq[c][index];
-              out_RGB[c][index] += sharpness_strength * high_freq;
-            }
-          }
+          // Build the clipping mask
+          const size_t index = (i * width + j);
+          mask[c][index] = (float)(out_RGB[c][index] > highlight_clipping || out_RGB[c][index] < lowlight_clipping);
         }
-      }
-    }
+
+    // Blur the mask
+    //box_average(mask[c], width, height, 1, 1);
+
+    heat_PDE_inpanting(out_RGB, mask, width, height, iter, d->structure_threshold, d->update_speed / 100.0f);
   }
 
   // Repack the RGB layers to an array of stucts
 #ifdef _OPENMP
 #pragma omp parallel for default(none) \
-dt_omp_firstprivate(out_RGB, out, height, width, ch) \
+dt_omp_firstprivate(out_RGB, out, height, width, ch, piece) \
 schedule(static) collapse(3)
 #endif
   for(size_t i = 0; i < height; ++i)
@@ -673,7 +810,7 @@ void init(dt_iop_module_t *module)
   module->params_size = sizeof(dt_iop_doctor_params_t);
   module->gui_data = NULL;
   dt_iop_doctor_params_t tmp = (dt_iop_doctor_params_t){ .scales = 3,
-                                                         .iterations = 1,
+                                                         .iterations = 3,
                                                          .luma_strength = 15.f,
                                                          .luma_feathering = 2.5f,
                                                          .luma_offset = 0.0f,
@@ -681,15 +818,18 @@ void init(dt_iop_module_t *module)
                                                          .chroma_feathering = 2.0f,
                                                          .chroma_offset = 0.5f,
                                                          .fringes_strength = 25.f,
-                                                         .fringes_feathering = 2.0f,
+                                                         .fringes_feathering = 1.0f,
                                                          .fringes_offset = -0.25f,
+                                                         .fringes_regularization = 3.0f,
                                                          .sharpness_strength = 50.f,
                                                          .sharpness_feathering = 1.5f,
-                                                         .sharpness_offset = 0.33f,
+                                                         .sharpness_width = 0.15f,
+                                                         .sharpness_offset = 2.5f,
+                                                         .dof_sensitivity = 100.0f,
                                                          .highlight_clipping = 99.0f,
-                                                         .structure_threshold = 0.0f,
-                                                         .update_speed = 1.0f,
-                                                         .reconstruct_iterations = 90,
+                                                         .structure_threshold = 50.0f,
+                                                         .update_speed = 100.0f,
+                                                         .reconstruct_iterations = 40,
                                                          .lowlight_clipping = -12.0f}; // clipping
   memcpy(module->params, &tmp, sizeof(dt_iop_doctor_params_t));
   memcpy(module->default_params, &tmp, sizeof(dt_iop_doctor_params_t));
@@ -733,6 +873,7 @@ void gui_update(struct dt_iop_module_t *self)
   dt_bauhaus_slider_set_soft(g->fringes_feathering, p->fringes_feathering);
   dt_bauhaus_slider_set_soft(g->fringes_strength, p->fringes_strength);
   dt_bauhaus_slider_set_soft(g->fringes_offset, p->fringes_offset);
+  dt_bauhaus_slider_set_soft(g->fringes_regularization, p->fringes_regularization);
 
   dt_bauhaus_slider_set_soft(g->highlight_clipping, p->highlight_clipping);
   dt_bauhaus_slider_set_soft(g->lowlight_clipping, p->lowlight_clipping);
@@ -743,6 +884,8 @@ void gui_update(struct dt_iop_module_t *self)
   dt_bauhaus_slider_set_soft(g->sharpness_feathering, p->sharpness_feathering);
   dt_bauhaus_slider_set_soft(g->sharpness_strength, p->sharpness_strength);
   dt_bauhaus_slider_set_soft(g->sharpness_offset, p->sharpness_offset);
+  dt_bauhaus_slider_set_soft(g->sharpness_width, p->sharpness_width);
+  dt_bauhaus_slider_set_soft(g->dof_sensitivity, p->dof_sensitivity);
 }
 
 static void scales_callback(GtkWidget *slider, gpointer user_data)
@@ -826,6 +969,15 @@ static void fringes_feathering_callback(GtkWidget *slider, gpointer user_data)
   dt_dev_add_history_item(darktable.develop, self, TRUE);
 }
 
+static void fringes_regularization_callback(GtkWidget *slider, gpointer user_data)
+{
+  dt_iop_module_t *self = (dt_iop_module_t *)user_data;
+  if(self->dt->gui->reset) return;
+  dt_iop_doctor_params_t *p = (dt_iop_doctor_params_t *)self->params;
+  p->fringes_regularization = dt_bauhaus_slider_get(slider);
+  dt_dev_add_history_item(darktable.develop, self, TRUE);
+}
+
 static void fringes_strength_callback(GtkWidget *slider, gpointer user_data)
 {
   dt_iop_module_t *self = (dt_iop_module_t *)user_data;
@@ -868,6 +1020,24 @@ static void sharpness_offset_callback(GtkWidget *slider, gpointer user_data)
   if(self->dt->gui->reset) return;
   dt_iop_doctor_params_t *p = (dt_iop_doctor_params_t *)self->params;
   p->sharpness_offset = dt_bauhaus_slider_get(slider);
+  dt_dev_add_history_item(darktable.develop, self, TRUE);
+}
+
+static void sharpness_width_callback(GtkWidget *slider, gpointer user_data)
+{
+  dt_iop_module_t *self = (dt_iop_module_t *)user_data;
+  if(self->dt->gui->reset) return;
+  dt_iop_doctor_params_t *p = (dt_iop_doctor_params_t *)self->params;
+  p->sharpness_width = dt_bauhaus_slider_get(slider);
+  dt_dev_add_history_item(darktable.develop, self, TRUE);
+}
+
+static void dof_sensitivity_callback(GtkWidget *slider, gpointer user_data)
+{
+  dt_iop_module_t *self = (dt_iop_module_t *)user_data;
+  if(self->dt->gui->reset) return;
+  dt_iop_doctor_params_t *p = (dt_iop_doctor_params_t *)self->params;
+  p->dof_sensitivity = dt_bauhaus_slider_get(slider);
   dt_dev_add_history_item(darktable.develop, self, TRUE);
 }
 
@@ -994,15 +1164,21 @@ void gui_init(dt_iop_module_t *self)
   gtk_box_pack_start(GTK_BOX(page2), g->chroma_offset , FALSE, FALSE, 0);
   g_signal_connect(G_OBJECT(g->chroma_offset), "value-changed", G_CALLBACK(chroma_offset_callback), self);
 
-  g->fringes_feathering = dt_bauhaus_slider_new_with_range(self, 0.1, 4., 0.2, 5., 2);
+  g->fringes_feathering = dt_bauhaus_slider_new_with_range(self, 0.1, 3., 0.2, 5., 2);
   dt_bauhaus_slider_set_format(g->fringes_feathering, "%.2f dB");
   dt_bauhaus_widget_set_label(g->fringes_feathering, NULL, _("edges sensitivity"));
   gtk_box_pack_start(GTK_BOX(page3), g->fringes_feathering, FALSE, FALSE, 0);
   g_signal_connect(G_OBJECT(g->fringes_feathering), "value-changed", G_CALLBACK(fringes_feathering_callback), self);
 
-  g->fringes_strength = dt_bauhaus_slider_new_with_range(self, 0., 100., 0.2, 100., 2);
-  dt_bauhaus_slider_set_format(g->fringes_strength, "%.2f %%");
-  dt_bauhaus_widget_set_label(g->fringes_strength , NULL, _("defringing"));
+  g->fringes_regularization = dt_bauhaus_slider_new_with_range(self, 0.0, 3., 0.05, 1.5, 2);
+  dt_bauhaus_slider_set_format(g->fringes_regularization, "%.2f dB");
+  dt_bauhaus_widget_set_label(g->fringes_regularization, NULL, _("gradient"));
+  gtk_box_pack_start(GTK_BOX(page3), g->fringes_regularization, FALSE, FALSE, 0);
+  g_signal_connect(G_OBJECT(g->fringes_regularization), "value-changed", G_CALLBACK(fringes_regularization_callback), self);
+
+  g->fringes_strength = dt_bauhaus_slider_new_with_range(self, 0.0, 3., 0.05, 1.5, 2);
+  dt_bauhaus_slider_set_format(g->fringes_strength, "%.2f dB");
+  dt_bauhaus_widget_set_label(g->fringes_strength , NULL, _("laplacian"));
   gtk_box_pack_start(GTK_BOX(page3), g->fringes_strength, FALSE, FALSE, 0);
   g_signal_connect(G_OBJECT(g->fringes_strength), "value-changed", G_CALLBACK(fringes_strength_callback), self);
 
@@ -1030,8 +1206,9 @@ void gui_init(dt_iop_module_t *self)
   gtk_box_pack_start(GTK_BOX(page4), g->structure_threshold, FALSE, FALSE, 0);
   g_signal_connect(G_OBJECT(g->structure_threshold), "value-changed", G_CALLBACK(structure_threshold_callback), self);
 
-  g->update_speed = dt_bauhaus_slider_new_with_range(self, 1., 20., 1., 1.0f, 2);
-  dt_bauhaus_widget_set_label(g->update_speed, NULL, _("smoothing"));
+  g->update_speed = dt_bauhaus_slider_new_with_range(self, 0., 100., 1., 100.0f, 2);
+  dt_bauhaus_slider_set_format(g->update_speed, "%.2f %%");
+  dt_bauhaus_widget_set_label(g->update_speed, NULL, _("strength"));
   gtk_box_pack_start(GTK_BOX(page4), g->update_speed, FALSE, FALSE, 0);
   g_signal_connect(G_OBJECT(g->update_speed), "value-changed", G_CALLBACK(update_speed_callback), self);
 
@@ -1040,23 +1217,35 @@ void gui_init(dt_iop_module_t *self)
   gtk_box_pack_start(GTK_BOX(page4), g->reconstruct_iterations, FALSE, FALSE, 0);
   g_signal_connect(G_OBJECT(g->reconstruct_iterations), "value-changed", G_CALLBACK(reconstruct_iterations_callback), self);
 
-  g->sharpness_feathering = dt_bauhaus_slider_new_with_range(self, 0.1, 4., 0.2, 5., 2);
+  g->sharpness_feathering = dt_bauhaus_slider_new_with_range(self, 0.1, 3., 0.2, 2., 2);
   dt_bauhaus_slider_set_format(g->sharpness_feathering, "%.2f dB");
-  dt_bauhaus_widget_set_label(g->sharpness_feathering, NULL, _("edges sensitivity"));
+  dt_bauhaus_widget_set_label(g->sharpness_feathering, NULL, _("fine edges sensitivity"));
   gtk_box_pack_start(GTK_BOX(page5), g->sharpness_feathering, FALSE, FALSE, 0);
   g_signal_connect(G_OBJECT(g->sharpness_feathering), "value-changed", G_CALLBACK(sharpness_feathering_callback), self);
 
-  g->sharpness_strength = dt_bauhaus_slider_new_with_range(self, 0., 100., 1., 0., 2);
+  g->sharpness_offset = dt_bauhaus_slider_new_with_range(self, 0.1, 3., 0.2, 2., 2);
+  dt_bauhaus_slider_set_format(g->sharpness_offset, "%.2f dB");
+  dt_bauhaus_widget_set_label(g->sharpness_offset, NULL, _("coarse edges sensitivity"));
+  gtk_box_pack_start(GTK_BOX(page5), g->sharpness_offset , FALSE, FALSE, 0);
+  g_signal_connect(G_OBJECT(g->sharpness_offset), "value-changed", G_CALLBACK(sharpness_offset_callback), self);
+
+  g->sharpness_width = dt_bauhaus_slider_new_with_range(self, 0.01, 3., 0.2, 0.5, 2);
+  dt_bauhaus_slider_set_format(g->sharpness_width, "%.2f dB");
+  dt_bauhaus_widget_set_label(g->sharpness_width, NULL, _("noise tolerance"));
+  gtk_box_pack_start(GTK_BOX(page5), g->sharpness_width , FALSE, FALSE, 0);
+  g_signal_connect(G_OBJECT(g->sharpness_width), "value-changed", G_CALLBACK(sharpness_width_callback), self);
+
+  g->dof_sensitivity = dt_bauhaus_slider_new_with_range(self, 0., 200., 0.2, 100., 3);
+  dt_bauhaus_slider_set_format(g->dof_sensitivity, "%.2f %%");
+  dt_bauhaus_widget_set_label(g->dof_sensitivity, NULL, _("rescale depth of field"));
+  gtk_box_pack_start(GTK_BOX(page5), g->dof_sensitivity, FALSE, FALSE, 0);
+  g_signal_connect(G_OBJECT(g->dof_sensitivity), "value-changed", G_CALLBACK(dof_sensitivity_callback), self);
+
+  g->sharpness_strength = dt_bauhaus_slider_new_with_range(self, 0., 200., 1., 50., 2);
   dt_bauhaus_slider_set_format(g->sharpness_strength , "%.2f %%");
   dt_bauhaus_widget_set_label(g->sharpness_strength , NULL, _("sharpening"));
   gtk_box_pack_start(GTK_BOX(page5), g->sharpness_strength , FALSE, FALSE, 0);
   g_signal_connect(G_OBJECT(g->sharpness_strength ), "value-changed", G_CALLBACK(sharpness_strength_callback), self);
-
-  g->sharpness_offset = dt_bauhaus_slider_new_with_range(self, -1.0, 1.0, 0.5, 100., 2);
-  dt_bauhaus_slider_set_format(g->sharpness_offset, "%.2f dB");
-  dt_bauhaus_widget_set_label(g->sharpness_offset, NULL, _("offset between iterations"));
-  gtk_box_pack_start(GTK_BOX(page5), g->sharpness_offset , FALSE, FALSE, 0);
-  g_signal_connect(G_OBJECT(g->sharpness_offset), "value-changed", G_CALLBACK(sharpness_offset_callback), self);
 }
 
 void gui_cleanup(struct dt_iop_module_t *self)

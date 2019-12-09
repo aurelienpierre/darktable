@@ -265,10 +265,8 @@ static inline void variance_analyse(const float *const restrict guide, // I
         tmp[c] *= num_elem;
 
       const size_t index = (i * width + j) * 2;
-      const float d = fmaxf((tmp[2] - tmp[0] * tmp[0]) + feathering, 1e-15f); // avoid division by 0.
+      const float d = fmaxf((tmp[2] - tmp[0] * tmp[0]) + feathering, 1e-15f); // avoid 0.
       const float a = (tmp[3] - tmp[0] * tmp[1]) / d;
-      const float b = tmp[1] - a * tmp[0];
-      const float ab_temp[2] DT_ALIGNED_PIXEL = { a, b };
 
 #ifdef _OPENMP
 #pragma omp simd aligned(ab_temp:16) aligned(ab:64)
