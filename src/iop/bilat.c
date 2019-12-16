@@ -298,8 +298,8 @@ void process_sse2(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, c
     {
       // full pipeline working on ROI needs boundary conditions from preview pipe
       // only do this if roi covers less than 90% of full width
-      if(MIN(roi_in->width/roi_in->scale / piece->buf_in.width,
-             roi_in->height/roi_in->scale / piece->buf_in.height) < 0.9)
+      // -> NOPE, it seems to be necessary all the time
+      if(TRUE)
       {
         dt_pthread_mutex_lock(&g->lock);
         const uint64_t hash = g->hash;
