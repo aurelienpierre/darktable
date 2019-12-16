@@ -791,16 +791,6 @@ void local_laplacian_internal(
     out[4*(j*wd+i)+1] = input[4*(j*wd+i)+1]; // copy original colour channels
     out[4*(j*wd+i)+2] = input[4*(j*wd+i)+2];
   }
-  if(b && b->mode == 1)
-  { // output the buffers for later re-use
-    b->pad0 = padded[0];
-    b->wd = wd;
-    b->ht = ht;
-    b->pwd = w;
-    b->pht = h;
-    b->num_levels = num_levels;
-    for(int l=0;l<num_levels;l++) b->output[l] = output[l];
-  }
   // free all buffers except the ones passed out for preview rendering
   for(int l=0;l<max_levels;l++)
   {
