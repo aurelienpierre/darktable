@@ -97,7 +97,7 @@ dt_local_laplacian_cl_t *dt_local_laplacian_init_cl(
   g->num_levels = MIN(max_levels, 31-__builtin_clz(MIN(width,height)));
   g->max_supp = 1<<(g->num_levels-1);
   g->bwidth = ROUNDUPWD(width  + 2*g->max_supp);
-  g->bheight = ROUNDUPWD(height + 2*g->max_supp);
+  g->bheight = ROUNDUPHT(height + 2*g->max_supp);
 
   // get intermediate vector buffers with read-write access
   for(int l=0;l<g->num_levels;l++)
