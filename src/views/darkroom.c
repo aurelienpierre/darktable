@@ -1277,32 +1277,6 @@ static gboolean _toolbar_show_popup(gpointer user_data)
 static void _iso_12646_quickbutton_clicked(GtkWidget *w, gpointer user_data)
 {
   dt_develop_t *d = (dt_develop_t *)user_data;
-  if (!d->gui_attached) return;
-
-  d->iso_12646.enabled = !d->iso_12646.enabled;
-  d->width = d->orig_width;
-  d->height = d->orig_height;
-
-  if(d->iso_12646.enabled)
-  {
-    d->border_size = 0.125 * d->width;
-  }
-  else
-  {
-    // Reset border size from config
-    d->border_size = DT_PIXEL_APPLY_DPI(dt_conf_get_int("plugins/darkroom/ui/border_size"));
-  }
-
-  dt_dev_configure(d, d->width, d->height);
-
-  dt_ui_restore_panels(darktable.gui->ui);
-  dt_dev_reprocess_center(d);
-}
-
-/* overexposed */
-static void _iso_12646_quickbutton_clicked(GtkWidget *w, gpointer user_data)
-{
-  dt_develop_t *d = (dt_develop_t *)user_data;
   d->iso_12646.enabled = !d->iso_12646.enabled;
 
   if(d->iso_12646.enabled)
