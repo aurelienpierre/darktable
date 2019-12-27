@@ -141,7 +141,7 @@ void init(dt_view_t *self)
 
 #ifdef USE_LUA
   lua_State *L = darktable.lua_state.state;
-  int my_type = dt_lua_module_entry_get_type(L, "view", self->module_name);
+  const int my_type = dt_lua_module_entry_get_type(L, "view", self->module_name);
   lua_pushlightuserdata(L, self);
   lua_pushcclosure(L, display_image_cb, 1);
   dt_lua_gtk_wrap(L);
@@ -184,11 +184,20 @@ void cleanup(dt_view_t *self)
 
 static cairo_status_t write_snapshot_data(void *closure, const unsigned char *data, unsigned int length)
 {
-  int fd = GPOINTER_TO_INT(closure);
+  const int fd = GPOINTER_TO_INT(closure);
   ssize_t res = write(fd, data, length);
   if(res != length)
     return CAIRO_STATUS_WRITE_ERROR;
   return CAIRO_STATUS_SUCCESS;
+}
+
+static dt_darkroom_layout_t _lib_darkroom_get_layout(dt_view_t *self)
+{
+  dt_develop_t *dev = (dt_develop_t *)self->data;
+  if(dev->iso_12646.enabled)
+    return DT_DARKROOM_LAYOUT_COLOR_ASSESMENT;
+  else
+    return DT_DARKROOM_LAYOUT_EDITING;
 }
 
 void expose(
@@ -203,7 +212,7 @@ void expose(
   cairo_save(cri);
 
   dt_develop_t *dev = (dt_develop_t *)self->data;
-  int32_t tb = dev->border_size;
+  const int32_t tb = dev->border_size;
   // account for border, make it transparent for other modules called below:
   pointerx -= tb;
   pointery -= tb;
@@ -381,6 +390,36 @@ void expose(
     cairo_fill(cr);
     cairo_surface_destroy(surface);
     dt_pthread_mutex_unlock(mutex);
+    image_surface_imgid = dev->image_storage.id;
+  }
+  else if(dev->preview_pipe->output_imgid != dev->image_storage.id)
+  {
+    dt_gui_gtk_set_source_rgb(cr, DT_GUI_COLOR_DARKROOM_BG);
+    cairo_paint(cr);
+
+    // waiting message
+    PangoRectangle ink;
+    PangoLayout *layout;
+    PangoFontDescription *desc = pango_font_description_copy_static(darktable.bauhaus->pango_font_desc);
+    const float fontsize = DT_PIXEL_APPLY_DPI(14);
+    pango_font_description_set_absolute_size(desc, fontsize * PANGO_SCALE);
+    pango_font_description_set_weight(desc, PANGO_WEIGHT_BOLD);
+    layout = pango_cairo_create_layout(cr);
+    pango_layout_set_font_description(layout, desc);
+    gchar *load_txt = dt_util_dstrcat(NULL, "%s %s ...", _("loading image"), dev->image_storage.filename);
+    pango_layout_set_text(layout, load_txt, -1);
+    pango_layout_get_pixel_extents(layout, &ink, NULL);
+    const float xc = width / 2.0, yc = height * 0.85 - DT_PIXEL_APPLY_DPI(10), wd = ink.width * .5f;
+    cairo_move_to(cr, xc - wd, yc + 1. / 3. * fontsize - fontsize);
+    pango_cairo_layout_path(cr, layout);
+    cairo_set_line_width(cr, 2.0);
+    dt_gui_gtk_set_source_rgb(cr, DT_GUI_COLOR_LOG_BG);
+    cairo_stroke_preserve(cr);
+    dt_gui_gtk_set_source_rgb(cr, DT_GUI_COLOR_LOG_FG);
+    cairo_fill(cr);
+    pango_font_description_free(desc);
+    g_object_unref(layout);
+    g_free(load_txt);
     image_surface_imgid = dev->image_storage.id;
   }
   cairo_restore(cri);
@@ -1003,12 +1042,13 @@ static gboolean zoom_key_accel(GtkAccelGroup *accel_group, GObject *acceleratabl
 static gboolean film_strip_key_accel(GtkAccelGroup *accel_group, GObject *acceleratable, guint keyval,
                                      GdkModifierType modifier, gpointer data)
 {
-  dt_lib_module_t *m = darktable.view_manager->proxy.filmstrip.module;
-  gboolean vs = dt_lib_is_visible(m);
-  dt_lib_set_visible(m, !vs);
+  // there's only filmstrip in bottom panel, so better hide/show it instead of filmstrip lib
+  const gboolean pb = dt_ui_panel_visible(darktable.gui->ui, DT_UI_PANEL_BOTTOM);
+  dt_ui_panel_show(darktable.gui->ui, DT_UI_PANEL_BOTTOM, !pb, TRUE);
+  // if we show the panel, ensure that filmstrip is visible
+  if(!pb) dt_lib_set_visible(darktable.view_manager->proxy.filmstrip.module, TRUE);
   return TRUE;
 }
-
 
 static gboolean export_key_accel_callback(GtkAccelGroup *accel_group, GObject *acceleratable, guint keyval,
                                           GdkModifierType modifier, gpointer data)
@@ -1231,6 +1271,32 @@ static gboolean _toolbar_show_popup(gpointer user_data)
 
   // cancel glib timeout if invoked by long button press
   return FALSE;
+}
+
+/* colour assessment */
+static void _iso_12646_quickbutton_clicked(GtkWidget *w, gpointer user_data)
+{
+  dt_develop_t *d = (dt_develop_t *)user_data;
+  if (!d->gui_attached) return;
+
+  d->iso_12646.enabled = !d->iso_12646.enabled;
+  d->width = d->orig_width;
+  d->height = d->orig_height;
+
+  if(d->iso_12646.enabled)
+  {
+    d->border_size = 0.125 * d->width;
+  }
+  else
+  {
+    // Reset border size from config
+    d->border_size = DT_PIXEL_APPLY_DPI(dt_conf_get_int("plugins/darkroom/ui/border_size"));
+  }
+
+  dt_dev_configure(d, d->width, d->height);
+
+  dt_ui_restore_panels(darktable.gui->ui);
+  dt_dev_reprocess_center(d);
 }
 
 /* overexposed */
@@ -2191,6 +2257,10 @@ void gui_init(dt_view_t *self)
     dt_control_signal_connect(darktable.signals, DT_SIGNAL_CONTROL_PROFILE_USER_CHANGED,
                               G_CALLBACK(_display2_profile_changed), (gpointer)display2_profile);
   }
+
+  darktable.view_manager->proxy.darkroom.view = self;
+  darktable.view_manager->proxy.darkroom.get_layout = _lib_darkroom_get_layout;
+  dev->border_size = DT_PIXEL_APPLY_DPI(dt_conf_get_int("plugins/darkroom/ui/border_size"));
 }
 
 enum
@@ -3259,6 +3329,8 @@ int key_pressed(dt_view_t *self, guint key, guint state)
 void configure(dt_view_t *self, int wd, int ht)
 {
   dt_develop_t *dev = (dt_develop_t *)self->data;
+  dev->orig_width = wd;
+  dev->orig_height = ht;
   dt_dev_configure(dev, wd, ht);
 }
 
@@ -3304,7 +3376,7 @@ void init_key_accels(dt_view_t *self)
   dt_accel_register_view(self, NC_("accel", "decrease brush opacity"), GDK_KEY_less, 0);
 
   // fullscreen view
-  dt_accel_register_view(self, NC_("accel", "full preview"), GDK_KEY_z, 0);
+  dt_accel_register_view(self, NC_("accel", "full preview"), GDK_KEY_w, 0);
 
   // undo/redo
   dt_accel_register_view(self, NC_("accel", "undo"), GDK_KEY_z, GDK_CONTROL_MASK);

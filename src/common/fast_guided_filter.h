@@ -105,7 +105,8 @@ static inline void interpolate_bilinear(const float *const restrict in, const si
 {
   // Fast vectorized bilinear interpolation on ch channels
 #ifdef _OPENMP
-#pragma omp parallel for simd collapse(2) default(none) schedule(static) aligned(in, out:64) \
+#pragma omp parallel for simd collapse(2) default(none) \
+  schedule(simd:static) aligned(in, out:64) \
   dt_omp_firstprivate(in, out, width_out, height_out, width_in, height_in, ch)
 #endif
   for(size_t i = 0; i < height_out; i++)
@@ -147,6 +148,8 @@ static inline void interpolate_bilinear(const float *const restrict in, const si
 
       // Interpolate over ch layers
       float *const pixel_out = (float *)out + (i * width_out + j) * ch;
+
+#pragma unroll
       for(size_t c = 0; c < ch; c++)
       {
         pixel_out[c] = Dy_prev * (Q_SW[c] * Dx_next + Q_SE[c] * Dx_prev) +
@@ -382,7 +385,7 @@ static inline void apply_linear_blending(float *const restrict image,
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
 dt_omp_firstprivate(image, ab, num_elem) \
-schedule(static) aligned(image, ab:64)
+schedule(simd:static) aligned(image, ab:64)
 #endif
   for(size_t k = 0; k < num_elem; k++)
   {
@@ -434,7 +437,7 @@ static inline void apply_linear_blending_w_geomean(float *const restrict image,
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
 dt_omp_firstprivate(image, ab, num_elem) \
-schedule(static) aligned(image, ab:64)
+schedule(simd:static) aligned(image, ab:64)
 #endif
   for(size_t k = 0; k < num_elem; k++)
   {
@@ -458,7 +461,7 @@ static inline void quantize(const float *const restrict image,
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
 dt_omp_firstprivate(image, out, num_elem, sampling, clip_min, clip_max) \
-schedule(static) aligned(image, out:64)
+schedule(simd:static) aligned(image, out:64)
 #endif
     for(size_t k = 0; k < num_elem; k++)
       out[k] = image[k];
@@ -469,7 +472,7 @@ schedule(static) aligned(image, out:64)
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
 dt_omp_firstprivate(image, out, num_elem, sampling, clip_min, clip_max) \
-schedule(static) aligned(image, out:64)
+schedule(simd:static) aligned(image, out:64)
 #endif
     for(size_t k = 0; k < num_elem; k++)
       out[k] = fast_clamp(exp2f(floorf(log2f(image[k]))), clip_min, clip_max);
@@ -481,7 +484,7 @@ schedule(static) aligned(image, out:64)
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
 dt_omp_firstprivate(image, out, num_elem, sampling, clip_min, clip_max) \
-schedule(static) aligned(image, out:64)
+schedule(simd:static) aligned(image, out:64)
 #endif
     for(size_t k = 0; k < num_elem; k++)
       out[k] = fast_clamp(exp2f(floorf(log2f(image[k]) / sampling) * sampling), clip_min, clip_max);

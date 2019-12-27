@@ -936,7 +936,8 @@ int dt_view_process_image_over(dt_view_image_over_t what, int active, cairo_t *c
         cairo_restore(cr);
       }
 
-      if(active && fabs(px - x - .5 * r1) <= .8 * r1 && fabs(py - y - .5 * r1) <= .8 * r1) ret = 1;
+      // mouse is over the audio icon
+      if(active && fabs(px - x - r1) <= .9 * r1 && fabs(py - y - r1) <= .9 * r1) ret = 1;
 
       break;
     }
@@ -2005,6 +2006,14 @@ void dt_view_manager_view_toolbox_add(dt_view_manager_t *vm, GtkWidget *tool, dt
 void dt_view_manager_module_toolbox_add(dt_view_manager_t *vm, GtkWidget *tool, dt_view_type_flags_t views)
 {
   if(vm->proxy.module_toolbox.module) vm->proxy.module_toolbox.add(vm->proxy.module_toolbox.module, tool, views);
+}
+
+dt_darkroom_layout_t dt_view_darkroom_get_layout(dt_view_manager_t *vm)
+{
+  if(vm->proxy.darkroom.view)
+    return vm->proxy.darkroom.get_layout(vm->proxy.darkroom.view);
+  else
+    return DT_DARKROOM_LAYOUT_EDITING;
 }
 
 void dt_view_lighttable_set_zoom(dt_view_manager_t *vm, gint zoom)
