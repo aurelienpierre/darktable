@@ -629,11 +629,12 @@ const char *name()
 
 const char *description(struct dt_iop_module_t *self)
 {
-  return dt_iop_set_description(self, _("denoise using noise statistics profiled on sensors"),
-                                      _("corrective"),
-                                      _("linear, RGB, scene-referred"),
-                                      _("linear, RGB"),
-                                      _("linear, RGB, scene-referred"));
+  return dt_iop_set_description(self,
+                                _("denoise using noise statistics profiled on sensors."),
+                                _("corrective"),
+                                _("linear, RGB, scene-referred"),
+                                _("linear, RGB"),
+                                _("linear, RGB, scene-referred"));
 }
 
 int default_group()
@@ -3185,7 +3186,6 @@ void init_pipe(struct dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pi
     for(int k = 0; k < DT_IOP_DENOISE_PROFILE_BANDS; k++)
       (void)dt_draw_curve_add_point(d->curve[ch], default_params->x[ch][k], default_params->y[ch][k]);
   }
-  self->commit_params(self, self->default_params, pipe, piece);
 }
 
 void cleanup_pipe(struct dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)

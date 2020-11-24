@@ -137,7 +137,6 @@ static void default_init_pipe(struct dt_iop_module_t *self, dt_dev_pixelpipe_t *
                               dt_dev_pixelpipe_iop_t *piece)
 {
   piece->data = malloc(self->params_size);
-  default_commit_params(self, self->default_params, pipe, piece);
 }
 
 static void default_cleanup_pipe(struct dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe,
@@ -604,8 +603,6 @@ void dt_iop_init_pipe(struct dt_iop_module_t *module, struct dt_dev_pixelpipe_t 
 {
   module->init_pipe(module, pipe, piece);
   piece->blendop_data = calloc(1, sizeof(dt_develop_blend_params_t));
-  /// FIXME: Commit params is already done in module
-  dt_iop_commit_params(module, module->default_params, module->default_blendop_params, pipe, piece);
 }
 
 static gboolean _header_motion_notify_show_callback(GtkWidget *eventbox, GdkEventCrossing *event, GtkWidget *header)
@@ -1260,13 +1257,19 @@ static void _iop_panel_label(GtkWidget *lab, dt_iop_module_t *module)
                                  : module_name);
   g_free(module_name);
 
-  gchar *tooltip = module->description(module);
   gtk_label_set_markup(GTK_LABEL(lab), label);
   gtk_label_set_ellipsize(GTK_LABEL(lab), !module->multi_name[0] ? PANGO_ELLIPSIZE_END: PANGO_ELLIPSIZE_MIDDLE);
   g_object_set(G_OBJECT(lab), "xalign", 0.0, (gchar *)0);
-  gtk_widget_set_tooltip_text(lab, tooltip);
+  if((module->flags() & IOP_FLAGS_DEPRECATED) && module->deprecated_msg())
+    gtk_widget_set_tooltip_text(lab, module->deprecated_msg());
+  else
+  {
+    gchar *tooltip = module->description(module);
+    gtk_widget_set_tooltip_text(lab, tooltip);
+    g_free(tooltip);
+  }
+
   g_free(label);
-  g_free(tooltip);
 }
 
 static void _iop_gui_update_header(dt_iop_module_t *module)
@@ -1358,9 +1361,8 @@ void dt_iop_reload_defaults(dt_iop_module_t *module)
 {
   if(darktable.gui) ++darktable.gui->reset;
   if(module->reload_defaults) module->reload_defaults(module);
-  if(darktable.gui) --darktable.gui->reset;
-
   dt_iop_load_default_params(module);
+  if(darktable.gui) --darktable.gui->reset;
 
   if(module->header) _iop_gui_update_header(module);
 }
@@ -1641,7 +1643,6 @@ int dt_iop_load_module(dt_iop_module_t *module, dt_iop_module_so_t *module_so, d
     free(module);
     return 1;
   }
-  dt_iop_reload_defaults(module);
   return 0;
 }
 
@@ -1664,7 +1665,6 @@ GList *dt_iop_load_modules_ext(dt_develop_t *dev, gboolean no_image)
     res = g_list_insert_sorted(res, module, dt_sort_iop_by_order);
     module->global_data = module_so->data;
     module->so = module_so;
-    if(!no_image) dt_iop_reload_defaults(module);
     iop = g_list_next(iop);
   }
 
@@ -1966,7 +1966,7 @@ static void dt_iop_gui_reset_callback(GtkButton *button, GdkEventButton *event, 
       if(grp) dt_masks_form_remove(module, NULL, grp);
     }
     /* reset to default params */
-    memcpy(module->params, module->default_params, module->params_size);
+    dt_iop_reload_defaults(module);
     dt_iop_commit_blend_params(module, module->default_blendop_params);
 
     /* reset ui to its defaults */
@@ -2674,6 +2674,10 @@ static gboolean enable_module_callback(GtkAccelGroup *accel_group, GObject *acce
 
 {
   dt_iop_module_t *module = (dt_iop_module_t *)data;
+
+  //cannot toggle module if there's no enable button
+  if(module->hide_enable_button) return TRUE;
+  
   gboolean active = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(module->off));
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(module->off), !active);
 

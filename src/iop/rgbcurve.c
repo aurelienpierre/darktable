@@ -133,6 +133,15 @@ int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_p
   return iop_cs_rgb;
 }
 
+const char *description(struct dt_iop_module_t *self)
+{
+  return dt_iop_set_description(self, _("alter an image’s tones using curves in RGB color space."),
+                                      _("corrective and creative"),
+                                      _("linear, RGB, display-referred"),
+                                      _("non-linear, RGB"),
+                                      _("linear, RGB, display-referred"));
+}
+
 void init_presets(dt_iop_module_so_t *self)
 {
   dt_iop_rgbcurve_params_t p;
@@ -833,38 +842,28 @@ static gboolean _area_draw_callback(GtkWidget *widget, cairo_t *crf, dt_iop_modu
 
     if(hist && hist_max > 0.0f)
     {
-      cairo_save(cr);
+      cairo_push_group_with_content(cr, CAIRO_CONTENT_COLOR);
       cairo_scale(cr, width / 255.0, -(height - DT_PIXEL_APPLY_DPI(5)) / hist_max);
 
       if(autoscale == DT_S_SCALE_AUTOMATIC_RGB)
       {
         cairo_set_operator(cr, CAIRO_OPERATOR_ADD);
-
-        set_color(cr, darktable.lib->proxy.histogram.primaries_display[0]);
-        dt_draw_histogram_8_zoomed(cr, hist, 4, DT_IOP_RGBCURVE_R, g->zoom_factor, g->offset_x * 255.0, g->offset_y * hist_max,
-                                   is_linear);
-
-        set_color(cr, darktable.lib->proxy.histogram.primaries_display[1]);
-        dt_draw_histogram_8_zoomed(cr, hist, 4, DT_IOP_RGBCURVE_G, g->zoom_factor, g->offset_x * 255.0, g->offset_y * hist_max,
-                                   is_linear);
-
-        set_color(cr, darktable.lib->proxy.histogram.primaries_display[2]);
-        dt_draw_histogram_8_zoomed(cr, hist, 4, DT_IOP_RGBCURVE_B, g->zoom_factor, g->offset_x * 255.0, g->offset_y * hist_max,
-                                   is_linear);
-        }
-        else if(autoscale == DT_S_SCALE_MANUAL_RGB)
+        for(int k=DT_IOP_RGBCURVE_R; k<DT_IOP_RGBCURVE_MAX_CHANNELS; k++)
         {
-          if(ch == DT_IOP_RGBCURVE_R)
-            set_color(cr, darktable.lib->proxy.histogram.primaries_display[0]);
-          else if(ch == DT_IOP_RGBCURVE_G)
-            set_color(cr, darktable.lib->proxy.histogram.primaries_display[1]);
-          else
-            set_color(cr, darktable.lib->proxy.histogram.primaries_display[2]);
-          dt_draw_histogram_8_zoomed(cr, hist, 4, ch, g->zoom_factor, g->offset_x * 255.0, g->offset_y * hist_max,
+          set_color(cr, darktable.bauhaus->graph_primaries[k]);
+          dt_draw_histogram_8_zoomed(cr, hist, 4, k, g->zoom_factor, g->offset_x * 255.0, g->offset_y * hist_max,
                                      is_linear);
         }
+      }
+      else if(autoscale == DT_S_SCALE_MANUAL_RGB)
+      {
+        set_color(cr, darktable.bauhaus->graph_primaries[ch]);
+        dt_draw_histogram_8_zoomed(cr, hist, 4, ch, g->zoom_factor, g->offset_x * 255.0, g->offset_y * hist_max,
+                                   is_linear);
+      }
 
-      cairo_restore(cr);
+      cairo_pop_group_to_source(cr);
+      cairo_paint_with_alpha(cr, 0.2);
     }
 
     if(self->request_color_pick != DT_REQUEST_COLORPICK_OFF)
