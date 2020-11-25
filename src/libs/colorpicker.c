@@ -19,6 +19,7 @@
 #include "bauhaus/bauhaus.h"
 #include "libs/colorpicker.h"
 #include "common/darktable.h"
+#include "common/iop_profile.h"
 #include "control/conf.h"
 #include "control/control.h"
 #include "develop/develop.h"
@@ -87,13 +88,57 @@ void connect_key_accels(dt_lib_module_t *self)
 
 // GUI callbacks
 
+static inline gboolean _convert_color_space(const dt_colorpicker_sample_t *restrict sample,
+                                        GdkRGBA *restrict color)
+{
+  // RGB values are relative to the histogram color profile
+  // we need to adapt them to display profile so color look right
+  // Note : dt_ioppr_set_pipe_output_profile_info sets a non-handled output profile to sRGB by default
+  // meaning that this conversion is wrong for fancy-pants LUT-based display profiles.
+
+  dt_iop_order_iccprofile_info_t *histogram_profile = dt_ioppr_get_histogram_profile_info(darktable.develop);
+  dt_iop_order_iccprofile_info_t *display_profile = dt_ioppr_get_pipe_output_profile_info(darktable.develop->pipe);
+
+  float RGB[3] = { sample->rgb.red, sample->rgb.green, sample->rgb.blue };
+  float XYZ[3];
+
+  if(!(histogram_profile && display_profile)) return TRUE; // no need to paint, color will be wrong
+
+  // convert from histogram RGB to XYZ
+  dt_ioppr_rgb_matrix_to_xyz(RGB, XYZ, histogram_profile->matrix_in, histogram_profile->lut_in,
+                             histogram_profile->unbounded_coeffs_in, histogram_profile->lutsize,
+                             histogram_profile->nonlinearlut);
+
+  // convert from XYZ to display RGB
+  dt_ioppr_xyz_to_rgb_matrix(XYZ, RGB, display_profile->matrix_out, display_profile->lut_out,
+                             display_profile->unbounded_coeffs_out, display_profile->lutsize,
+                             display_profile->nonlinearlut);
+
+  color->red = RGB[0];
+  color->green = RGB[1];
+  color->blue = RGB[2];
+
+  return FALSE;
+}
+
 static gboolean _sample_draw_callback(GtkWidget *widget, cairo_t *cr, dt_colorpicker_sample_t *sample)
 {
   const guint width = gtk_widget_get_allocated_width(widget);
   const guint height = gtk_widget_get_allocated_height(widget);
-  gdk_cairo_set_source_rgba(cr, &sample->rgb);
+
+  GdkRGBA *color = gdk_rgba_copy(&sample->rgb);
+  if(_convert_color_space(sample, color))
+  {
+    // function failed, profiles are not set, color will be wrong, exit.
+    gdk_rgba_free(color);
+    return TRUE;
+  }
+
+  gdk_cairo_set_source_rgba(cr, color);
   cairo_rectangle(cr, 0, 0, width, height);
   cairo_fill (cr);
+
+  gdk_rgba_free(color);
 
   // if the sample is locked we want to add a lock
   if(sample->locked)
