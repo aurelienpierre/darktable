@@ -3503,8 +3503,9 @@ void gui_init(struct dt_iop_module_t *self)
 
   g->checkers_list = dt_bauhaus_combobox_new(self);
   dt_bauhaus_widget_set_label(g->checkers_list, NULL, _("chart"));
-  dt_bauhaus_combobox_add(g->checkers_list, _("Xrite Color Checker 24"));
-  dt_bauhaus_combobox_add(g->checkers_list, _("Datacolor Spyder Checkr 48"));
+  dt_bauhaus_combobox_add(g->checkers_list, _("Xrite ColorChecker Passport 24"));
+  dt_bauhaus_combobox_add(g->checkers_list, _("Xrite ColorChecker 24"));
+  dt_bauhaus_combobox_add(g->checkers_list, _("Datacolor SpyderCheckr 48"));
   g_signal_connect(G_OBJECT(g->checkers_list), "value-changed", G_CALLBACK(checker_changed_callback), self);
   gtk_widget_set_tooltip_text(g->checkers_list, _("choose the vendor and the type of your chart"));
   gtk_box_pack_start(GTK_BOX(g->collapsible), GTK_WIDGET(g->checkers_list), TRUE, TRUE, 0);
