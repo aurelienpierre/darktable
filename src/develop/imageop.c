@@ -174,6 +174,8 @@ static void default_process(struct dt_iop_module_t *self, struct dt_dev_pixelpip
                             const void *const i, void *const o, const struct dt_iop_roi_t *const roi_in,
                             const struct dt_iop_roi_t *const roi_out)
 {
+  if(roi_in->width <= 1 || roi_in->height <= 1 || roi_out->width <= 1 || roi_out->height <= 1) return;
+
   if(darktable.codepath.OPENMP_SIMD && self->process_plain)
     self->process_plain(self, piece, i, o, roi_in, roi_out);
 #if defined(__SSE__)
@@ -652,7 +654,7 @@ static void dt_iop_gui_delete_callback(GtkButton *button, dt_iop_module_t *modul
                             dt_ioppr_iop_order_copy_deep(darktable.develop->iop_order_list));
 
   // we must pay attention if priority is 0
-  gboolean is_zero = (module->multi_priority == 0);
+  const gboolean is_zero = (module->multi_priority == 0);
 
   // we set the focus to the other instance
   dt_iop_gui_set_expanded(next, TRUE, FALSE);
@@ -1008,10 +1010,26 @@ static gboolean _rename_module_key_press(GtkWidget *entry, GdkEventKey *event, d
 
   if(event->type == GDK_FOCUS_CHANGE || event->keyval == GDK_KEY_Return || event->keyval == GDK_KEY_KP_Enter)
   {
-    const gchar *name = gtk_entry_get_text(GTK_ENTRY(entry));
-    if(strcmp(module->multi_name, name) != 0)
+    if(gtk_entry_get_text_length(GTK_ENTRY(entry)) > 0)
     {
-      g_strlcpy(module->multi_name, name, sizeof(module->multi_name));
+      // name is not empty, set new multi_name
+
+       const gchar *name = gtk_entry_get_text(GTK_ENTRY(entry));
+
+      // restore saved 1st character of instance name (without it the same name wouls still produce unnecessary copy + add history item)
+      module->multi_name[0] = module->multi_name[sizeof(module->multi_name) - 1];
+      module->multi_name[sizeof(module->multi_name) - 1] = 0;
+
+      if(g_strcmp0(module->multi_name, name) != 0)
+      {
+        g_strlcpy(module->multi_name, name, sizeof(module->multi_name));
+        dt_dev_add_history_item(module->dev, module, TRUE);
+      }
+    }
+    else
+    {
+      // clear out multi-name (set 1st char to 0)
+      module->multi_name[0] = 0;
       dt_dev_add_history_item(module->dev, module, TRUE);
     }
 
@@ -1360,7 +1378,21 @@ void dt_iop_gui_init(dt_iop_module_t *module)
 void dt_iop_reload_defaults(dt_iop_module_t *module)
 {
   if(darktable.gui) ++darktable.gui->reset;
-  if(module->reload_defaults) module->reload_defaults(module);
+  if(module->reload_defaults)
+  {
+    // report if reload_defaults was called unnecessarily => this should be considered a bug
+    // the whole point of reload_defaults is to update defaults _based on current image_
+    // any required initialisation should go in init (and not be performed repeatedly here)
+    if(module->dev)
+    {
+      module->reload_defaults(module);
+      dt_print(DT_DEBUG_PARAMS, "[params] defaults reloaded for %s\n", module->op);
+    }
+    else
+    {
+      fprintf(stderr, "reload_defaults should not be called without image.\n");
+    }
+  }
   dt_iop_load_default_params(module);
   if(darktable.gui) --darktable.gui->reset;
 
@@ -1918,6 +1950,8 @@ void dt_iop_commit_params(dt_iop_module_t *module, dt_iop_params_t *params,
     piece->hash = hash;
 
     free(str);
+
+    dt_print(DT_DEBUG_PARAMS, "[params] commit for %s in pipe %i with hash %lu\n", module->op, pipe->type, (long unsigned int)piece->hash);
   }
   // printf("commit params hash += module %s: %lu, enabled = %d\n", piece->module->op, piece->hash,
   // piece->enabled);
@@ -1925,25 +1959,28 @@ void dt_iop_commit_params(dt_iop_module_t *module, dt_iop_params_t *params,
 
 void dt_iop_gui_cleanup_module(dt_iop_module_t *module)
 {
+  while(g_idle_remove_by_data(module->widget))
+    ; // remove multiple delayed gtk_widget_queue_draw triggers
   module->gui_cleanup(module);
   dt_iop_gui_cleanup_blending(module);
 }
 
 void dt_iop_gui_update(dt_iop_module_t *module)
 {
-  if(module->gui_data)
+  ++darktable.gui->reset;
+  if(!dt_iop_is_hidden(module))
   {
-    ++darktable.gui->reset;
-    if(!dt_iop_is_hidden(module))
+    if(module->gui_data)
     {
       if(module->params && module->gui_update) module->gui_update(module);
+
       dt_iop_gui_update_blending(module);
       dt_iop_gui_update_expanded(module);
-      _iop_gui_update_label(module);
-      dt_iop_gui_set_enable_button(module);
     }
-    --darktable.gui->reset;
+    _iop_gui_update_label(module);
+    dt_iop_gui_set_enable_button(module);
   }
+  --darktable.gui->reset;
 }
 
 void dt_iop_gui_reset(dt_iop_module_t *module)
@@ -2381,6 +2418,7 @@ gboolean dt_iop_show_hide_header_buttons(GtkWidget *header, GdkEventCrossing *ev
       button && GTK_IS_BUTTON(button->data);
       button = g_list_previous(button))
   {
+    gtk_widget_set_no_show_all(GTK_WIDGET(button->data), TRUE);
     gtk_widget_set_visible(GTK_WIDGET(button->data), show_buttons && !always_hide);
     gtk_widget_set_opacity(GTK_WIDGET(button->data), opacity);
   }
@@ -3154,10 +3192,10 @@ char *dt_iop_set_description(dt_iop_module_t *module, const char *main_text, con
   const char *str_process = _("process");
   const char *str_output  = _("output");
 
-  const int len_purpose = strlen(str_purpose);
-  const int len_input   = strlen(str_input);
-  const int len_process = strlen(str_process);
-  const int len_output  = strlen(str_output);
+  const int len_purpose = g_utf8_strlen(str_purpose, -1);
+  const int len_input   = g_utf8_strlen(str_input, -1);
+  const int len_process = g_utf8_strlen(str_process, -1);
+  const int len_output  = g_utf8_strlen(str_output, -1);
 
   const int max = MAX(len_purpose,
                       MAX(len_input, MAX(len_process, len_output)));

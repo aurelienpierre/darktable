@@ -562,10 +562,9 @@ dt_imageio_retval_t dt_imageio_open_ldr(dt_image_t *img, const char *filename, d
   {
     // cst is set by dt_imageio_open_tiff()
     img->buf_dsc.filters = 0u;
+    // TIFF can be HDR or LDR. corresponding flags are set in dt_imageio_open_tiff()
     img->flags &= ~DT_IMAGE_RAW;
-    img->flags &= ~DT_IMAGE_HDR;
     img->flags &= ~DT_IMAGE_S_RAW;
-    img->flags |= DT_IMAGE_LDR;
     img->loader = LOADER_TIFF;
     return ret;
   }
@@ -1040,6 +1039,9 @@ int dt_imageio_export_with_flags(const int32_t imgid, const char *filename,
                               &pipe, export_masks);
   }
 
+  if(res)
+    goto error;
+
   dt_dev_pixelpipe_cleanup(&pipe);
   dt_dev_cleanup(&dev);
   dt_mipmap_cache_release(darktable.mipmap_cache, &buf);
@@ -1080,7 +1082,7 @@ int dt_imageio_export_with_flags(const int32_t imgid, const char *filename,
                             format_params, storage, storage_params);
   }
 
-  return res;
+  return 0; // success
 
 error:
   dt_dev_pixelpipe_cleanup(&pipe);

@@ -268,6 +268,7 @@ typedef struct dt_develop_t
 
     // is the WB module using D65 illuminant and not doing full chromatic adaptation ?
     gboolean wb_is_D65;
+    float wb_coeffs[4];
 
   } proxy;
 
@@ -524,6 +525,14 @@ void dt_second_window_set_zoom_scale(dt_develop_t *dev, const float value);
 void dt_second_window_get_processed_size(const dt_develop_t *dev, int *procw, int *proch);
 void dt_second_window_check_zoom_bounds(dt_develop_t *dev, float *zoom_x, float *zoom_y, const dt_dev_zoom_t zoom,
                                         const int closeup, float *boxww, float *boxhh);
+
+/*
+ *   history undo suport helpers for darkroom
+ */
+
+/* all history change must be enclosed into a start / end call */
+void dt_dev_undo_start_record(dt_develop_t *dev);
+void dt_dev_undo_end_record(dt_develop_t *dev);
 
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
 // vim: shiftwidth=2 expandtab tabstop=2 cindent

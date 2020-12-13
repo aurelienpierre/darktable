@@ -88,8 +88,7 @@ void connect_key_accels(dt_lib_module_t *self)
 
 // GUI callbacks
 
-static inline gboolean _convert_color_space(const dt_colorpicker_sample_t *restrict sample,
-                                        GdkRGBA *restrict color)
+static inline gboolean _convert_color_space(const GdkRGBA *restrict sample, GdkRGBA *restrict color)
 {
   // RGB values are relative to the histogram color profile
   // we need to adapt them to display profile so color look right
@@ -99,7 +98,7 @@ static inline gboolean _convert_color_space(const dt_colorpicker_sample_t *restr
   dt_iop_order_iccprofile_info_t *histogram_profile = dt_ioppr_get_histogram_profile_info(darktable.develop);
   dt_iop_order_iccprofile_info_t *display_profile = dt_ioppr_get_pipe_output_profile_info(darktable.develop->pipe);
 
-  float RGB[3] = { sample->rgb.red, sample->rgb.green, sample->rgb.blue };
+  float RGB[3] = { sample->red, sample->green, sample->blue };
   float XYZ[3];
 
   if(!(histogram_profile && display_profile)) return TRUE; // no need to paint, color will be wrong
@@ -114,9 +113,11 @@ static inline gboolean _convert_color_space(const dt_colorpicker_sample_t *restr
                              display_profile->unbounded_coeffs_out, display_profile->lutsize,
                              display_profile->nonlinearlut);
 
-  color->red = RGB[0];
-  color->green = RGB[1];
-  color->blue = RGB[2];
+  // Sanitize values and ensure gamut-fitting
+  // we reproduce the default behaviour of colorout, which is harsh gamut clipping
+  color->red = CLAMP(RGB[0], 0.f, 1.f);
+  color->green = CLAMP(RGB[1], 0.f, 1.f);
+  color->blue = CLAMP(RGB[2], 0.f, 1.f);
 
   return FALSE;
 }
@@ -127,7 +128,7 @@ static gboolean _sample_draw_callback(GtkWidget *widget, cairo_t *cr, dt_colorpi
   const guint height = gtk_widget_get_allocated_height(widget);
 
   GdkRGBA *color = gdk_rgba_copy(&sample->rgb);
-  if(_convert_color_space(sample, color))
+  if(_convert_color_space(&sample->rgb, color))
   {
     // function failed, profiles are not set, color will be wrong, exit.
     gdk_rgba_free(color);
@@ -185,9 +186,9 @@ static void _update_sample_label(dt_colorpicker_sample_t *sample)
   }
 
   // Setting the output button
-  sample->rgb.red   = CLAMP(rgb[0], 0.f, 1.f);
-  sample->rgb.green = CLAMP(rgb[1], 0.f, 1.f);
-  sample->rgb.blue  = CLAMP(rgb[2], 0.f, 1.f);
+  sample->rgb.red   = rgb[0];
+  sample->rgb.green = rgb[1];
+  sample->rgb.blue  = rgb[2];
 
   // Setting the output label
   char text[128] = { 0 };
@@ -296,9 +297,31 @@ static gboolean _sample_tooltip_callback(GtkWidget *widget, gint x, gint y, gboo
 
   for(int i = 0; i < 3; i++)
   {
-    const float *rgb = i == 0 ? sample->picked_color_rgb_mean :
-                       i == 1 ? sample->picked_color_rgb_min :
-                                sample->picked_color_rgb_max;
+    const float *picked_rgb = (i == 0) ? sample->picked_color_rgb_mean :
+                              (i == 1) ? sample->picked_color_rgb_min
+                                       : sample->picked_color_rgb_max;
+    float rgb[3];
+    for(size_t c = 0; c < 3; c++) rgb[c] = picked_rgb[c];
+
+    GdkRGBA color_in;
+    color_in.red = rgb[0];
+    color_in.green = rgb[1];
+    color_in.blue = rgb[2];
+    color_in.alpha = 1.f;
+
+    GdkRGBA *color_out = gdk_rgba_copy(&color_in);
+
+    if(_convert_color_space(&color_in, color_out))
+    {
+      // function failed, profiles are not set, color will be wrong, exit.
+      gdk_rgba_free(color_out);
+      return FALSE;
+    }
+
+    rgb[0] = color_out->red;
+    rgb[1] = color_out->green;
+    rgb[2] = color_out->blue;
+    gdk_rgba_free(color_out);
 
     sample_parts[i] = g_strdup_printf("<span background='#%02X%02X%02X'>%32s</span>",
                                       (int)round(CLAMP(rgb[0], 0.f, 1.f) * 255.f),
@@ -308,9 +331,9 @@ static gboolean _sample_tooltip_callback(GtkWidget *widget, gint x, gint y, gboo
     sample_parts[i + 4] = g_strdup_printf("<span foreground='#FF7F7F'>%6d</span>  "
                                           "<span foreground='#7FFF7F'>%6d</span>  "
                                           "<span foreground='#7F7FFF'>%6d</span>  %s",
-                                          (int)round(rgb[0] * 255.f),
-                                          (int)round(rgb[1] * 255.f),
-                                          (int)round(rgb[2] * 255.f), _(name[i]));
+                                          (int)round(picked_rgb[0] * 255.f),
+                                          (int)round(picked_rgb[1] * 255.f),
+                                          (int)round(picked_rgb[2] * 255.f), _(name[i]));
 
     const float *lab = i == 0 ? sample->picked_color_lab_mean :
                        i == 1 ? sample->picked_color_lab_min :

@@ -452,7 +452,7 @@ void expose(
     else
     {
       fontsize = DT_PIXEL_APPLY_DPI(14);
-      load_txt = dt_util_dstrcat(NULL, NC_("darkroom", "loading `%s' ..."), dev->image_storage.filename);
+      load_txt = dt_util_dstrcat(NULL, C_("darkroom", "loading `%s' ..."), dev->image_storage.filename);
     }
 
     pango_font_description_set_absolute_size(desc, fontsize * PANGO_SCALE);
@@ -1240,10 +1240,16 @@ static void _darkroom_ui_apply_style_activate_callback(gchar *name)
   /* write current history changes so nothing gets lost */
   dt_dev_write_history(darktable.develop);
 
+  dt_dev_undo_start_record(darktable.develop);
+
   /* apply style on image and reload*/
   dt_styles_apply_to_image(name, FALSE, darktable.develop->image_storage.id);
   dt_dev_reload_image(darktable.develop, darktable.develop->image_storage.id);
+
   DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_TAG_CHANGED);
+
+  /* record current history state : after change (needed for undo) */
+  dt_dev_undo_end_record(darktable.develop);
 
   // rebuild the accelerators (style might have changed order)
   dt_iop_connect_accels_all();
@@ -2537,24 +2543,39 @@ enum
 static const GtkTargetEntry _iop_target_list_internal[] = { { "iop", GTK_TARGET_SAME_WIDGET, DND_TARGET_IOP } };
 static const guint _iop_n_targets_internal = G_N_ELEMENTS(_iop_target_list_internal);
 
-static dt_iop_module_t *_get_dnd_dest_module(GtkBox *container, gint x, gint y)
+static dt_iop_module_t *_get_dnd_dest_module(GtkBox *container, gint x, gint y, dt_iop_module_t *module_src)
 {
   dt_iop_module_t *module_dest = NULL;
+
+  GtkAllocation allocation_w = {0};
+  gtk_widget_get_allocation(module_src->header, &allocation_w);
+  const int y_slop = allocation_w.height / 2;
+  // after source in pixelpipe, which is before it in the widgets list
+  gboolean after_src = TRUE;
 
   GtkWidget *widget_dest = NULL;
   GList *children = gtk_container_get_children(GTK_CONTAINER(container));
   for(GList *l = children; l != NULL; l = g_list_next(l))
   {
     GtkWidget *w = GTK_WIDGET(l->data);
-
-    if(w && gtk_widget_is_visible(w))
+    if(w)
     {
-      GtkAllocation allocation_w = {0};
-      gtk_widget_get_allocation(w, &allocation_w);
-      if(y <= allocation_w.y + allocation_w.height + DT_PIXEL_APPLY_DPI(8) && y >= allocation_w.y - DT_PIXEL_APPLY_DPI(8))
+      if(w == module_src->expander) after_src = FALSE;
+      if(gtk_widget_is_visible(w))
       {
-        widget_dest = w;
-        break;
+        gtk_widget_get_allocation(w, &allocation_w);
+        // If dragging to later in the pixelpipe, we will insert after
+        // the destination module. If dragging to earlier in the
+        // pixelpipe, will insert before the destination module. This
+        // results in two code paths here and in our caller, but can
+        // handle all cases from inserting at the very start to the
+        // very end.
+        if((after_src && y <= allocation_w.y + y_slop) ||
+           (!after_src && y <= allocation_w.y + allocation_w.height + y_slop))
+        {
+          widget_dest = w;
+          break;
+        }
       }
     }
   }
@@ -2605,10 +2626,22 @@ static void _on_drag_begin(GtkWidget *widget, GdkDragContext *context, gpointer 
     {
       GtkAllocation allocation_w = {0};
       gtk_widget_get_allocation(module_src->header, &allocation_w);
+      // method from https://blog.gtk.org/2017/04/23/drag-and-drop-in-lists/
+      cairo_surface_t *surface = dt_cairo_image_surface_create(CAIRO_FORMAT_RGB24, allocation_w.width, allocation_w.height);
+      cairo_t *cr = cairo_create(surface);
 
-      GdkPixbuf *pixbuf = gdk_pixbuf_get_from_window(window, allocation_w.x, allocation_w.y,
-                                                     allocation_w.width, allocation_w.height);
-      gtk_drag_set_icon_pixbuf(context, pixbuf, allocation_w.width / 2, allocation_w.height / 2);
+      // hack to render not transparent
+      GtkStyleContext *style_context = gtk_widget_get_style_context(module_src->header);
+      gtk_style_context_add_class(style_context, "iop_drag_icon");
+      gtk_widget_draw(module_src->header, cr);
+      gtk_style_context_remove_class(style_context, "iop_drag_icon");
+
+      // FIXME: this centers the icon on the mouse -- instead translate such that the label doesn't jump when mouse down?
+      cairo_surface_set_device_offset(surface, -allocation_w.width * darktable.gui->ppd / 2, -allocation_w.height * darktable.gui->ppd / 2);
+      gtk_drag_set_icon_surface(context, surface);
+
+      cairo_destroy(cr);
+      cairo_surface_destroy(surface);
     }
   }
 }
@@ -2642,7 +2675,9 @@ static gboolean _on_drag_motion(GtkWidget *widget, GdkDragContext *dc, gint x, g
   gboolean can_moved = FALSE;
   GtkBox *container = dt_ui_get_container(darktable.gui->ui, DT_UI_CONTAINER_PANEL_RIGHT_CENTER);
   dt_iop_module_t *module_src = _get_dnd_source_module(container);
-  dt_iop_module_t *module_dest = _get_dnd_dest_module(container, x, y);
+  if(!module_src) return FALSE;
+
+  dt_iop_module_t *module_dest = _get_dnd_dest_module(container, x, y, module_src);
 
   if(module_src && module_dest && module_src != module_dest)
   {
@@ -2702,7 +2737,7 @@ static void _on_drag_data_received(GtkWidget *widget, GdkDragContext *dc, gint x
   int moved = 0;
   GtkBox *container = dt_ui_get_container(darktable.gui->ui, DT_UI_CONTAINER_PANEL_RIGHT_CENTER);
   dt_iop_module_t *module_src = _get_dnd_source_module(container);
-  dt_iop_module_t *module_dest = _get_dnd_dest_module(container, x, y);
+  dt_iop_module_t *module_dest = _get_dnd_dest_module(container, x, y, module_src);
 
   if(module_src && module_dest && module_src != module_dest)
   {
@@ -2986,10 +3021,14 @@ void enter(dt_view_t *self)
   // connect to preference change for module header button hiding
   DT_DEBUG_CONTROL_SIGNAL_CONNECT(darktable.signals, DT_SIGNAL_PREFERENCES_CHANGE,
                                   G_CALLBACK(_preference_changed_button_hide), dev);
+
+  dt_iop_color_picker_init();
 }
 
 void leave(dt_view_t *self)
 {
+  dt_iop_color_picker_cleanup();
+
   _unregister_modules_drag_n_drop(self);
 
   /* disconnect from filmstrip image activate */
