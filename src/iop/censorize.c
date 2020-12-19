@@ -48,10 +48,10 @@ DT_MODULE_INTROSPECTION(1, dt_iop_censorize_params_t)
 
 typedef struct dt_iop_censorize_params_t
 {
-  float radius_1;              // $MIN: 0.0 $MAX: 500.0 $DEFAULT: 10.0  $DESCRIPTION: "input blur radius"
-  float pixelate;              // $MIN: 0.0 $MAX: 500.0 $DEFAULT: 100.0 $DESCRIPTION: "pixellation radius"
-  float radius_2;              // $MIN: 0.0 $MAX: 500.0 $DEFAULT: 10.0  $DESCRIPTION: "output blur radius"
-  float noise;                 // $MIN: 0.0 $MAX: 1.0   $DEFAULT: 0.5   $DESCRIPTION: "noise level"
+  float radius_1;              // $MIN: 0.0 $MAX: 500.0 $DEFAULT: 0.0  $DESCRIPTION: "input blur radius"
+  float pixelate;              // $MIN: 0.0 $MAX: 500.0 $DEFAULT: 0.0 $DESCRIPTION: "pixellation radius"
+  float radius_2;              // $MIN: 0.0 $MAX: 500.0 $DEFAULT: 0.0  $DESCRIPTION: "output blur radius"
+  float noise;                 // $MIN: 0.0 $MAX: 1.0   $DEFAULT: 0.0   $DESCRIPTION: "noise level"
 } dt_iop_censorize_params_t;
 
 
