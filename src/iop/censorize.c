@@ -273,10 +273,10 @@ static inline void make_noise(float *const output, const float noise, const size
       const float norm = pix_out[1];
 
       // create statistical noise
-      const float epsilon = gaussian_noise(norm, noise * norm, i % 2 || j % 2, state);
+      const float epsilon = gaussian_noise(norm, noise * norm, i % 2 || j % 2, state) / norm;
 
       // add noise to output
-      for(size_t c = 0; c < 3; c++) pix_out[c] += epsilon *  pix_out[c];
+      for(size_t c = 0; c < 3; c++) pix_out[c] *= epsilon;
     }
 }
 
@@ -375,11 +375,10 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
   // second blurring step
   if(sigma_2 != 0.f)
   {
-    // add noise to defeat most AI reconstruction algos
+    output = out;
+
     if(noise != 0.f)
       make_noise(output, noise, width, height);
-
-    output = out;
 
     dt_gaussian_t *g = dt_gaussian_init(width, height, ch, RGBmax, RGBmin, sigma_2, 0);
     if(!g) return;
@@ -392,7 +391,6 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
     dt_simd_memcpy(input, output, width * height * 4);
   }
 
-  // add noise to defeat most AI reconstruction algos
   if(noise != 0.f)
     make_noise(output, noise, width, height);
 
