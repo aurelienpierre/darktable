@@ -377,7 +377,7 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
   {
     // add noise to defeat most AI reconstruction algos
     if(noise != 0.f)
-      make_noise(output, data->radius_2 * noise, width, height);
+      make_noise(output, noise, width, height);
 
     output = out;
 
