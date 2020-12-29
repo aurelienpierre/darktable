@@ -2248,9 +2248,9 @@ static void commit_profile_callback(GtkWidget *widget, GdkEventButton *event, gp
   dt_iop_channelmixer_rgb_gui_data_t *g = (dt_iop_channelmixer_rgb_gui_data_t *)self->gui_data;
   dt_iop_channelmixer_rgb_params_t *p = (dt_iop_channelmixer_rgb_params_t *)self->params;
 
-  dt_pthread_mutex_lock(&g->lock);
-
   if(!g->profile_ready) return;
+
+  dt_pthread_mutex_lock(&g->lock);
 
   p->x = g->xy[0];
   p->y = g->xy[1];
