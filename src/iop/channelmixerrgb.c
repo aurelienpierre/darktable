@@ -138,7 +138,7 @@ typedef struct dt_iop_channelmixer_rgb_gui_data_t
   GtkWidget *start_profiling;
   gboolean is_profiling_started;
   GtkWidget *collapsible;
-  GtkWidget *checkers_list, *optimize, *safety, *label_delta_E, *button_profile, *button_validate, *button_commit;
+  GtkWidget *checkers_list, *optimize, *safety, *normalize, *label_delta_E, *button_profile, *button_validate, *button_commit;
 
   float *delta_E_in;
 } dt_iop_channelmixer_rgb_gui_data_t;
@@ -1145,6 +1145,7 @@ void extract_color_checker(const float *const restrict in, float *const restrict
   const size_t height = roi_in->height;
 
   float *const restrict patches = dt_alloc_sse_ps(4 * g->checker->patches);
+  float *const restrict patches_luminance = dt_alloc_sse_ps(g->checker->patches);
   const float radius = g->checker->radius * hypotf(width, height) * g->safety_margin;
 
   if(g->delta_E_in == NULL)
@@ -1215,6 +1216,8 @@ void extract_color_checker(const float *const restrict in, float *const restrict
   dt_Lab_to_XYZ(g->checker->values[g->checker->black].Lab, XYZ_black_ref);
   const float black = XYZ_black_test[1] * exposure - XYZ_black_ref[1];
 
+  gboolean normalize = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g->normalize));
+
   for(size_t k = 0; k < g->checker->patches; k++)
   {
     // compensate global exposure
@@ -1226,7 +1229,8 @@ void extract_color_checker(const float *const restrict in, float *const restrict
     const float Y = XYZ[1];
     float DT_ALIGNED_PIXEL XYZ_ref[4];
     dt_Lab_to_XYZ(g->checker->values[k].Lab, XYZ_ref);
-    for(size_t c = 0; c < 3; c++) patches[k * 4 + c] = XYZ[c] * XYZ_ref[1] / Y;
+    for(size_t c = 0; c < 3; c++) patches[k * 4 + c] = (normalize) ? XYZ[c] * XYZ_ref[1] / Y : XYZ[c];
+    patches_luminance[k] = (normalize) ? Y / XYZ_ref[1] : 1.f;
   }
 
   // Compute the delta E
@@ -1434,9 +1438,13 @@ void extract_color_checker(const float *const restrict in, float *const restrict
   for(size_t k = 0; k < g->checker->patches; k++)
   {
     float *const sample = patches + k * 4;
-    float LMS_test[4], temp[4];
+    float LMS_test[4];
+    float temp[4] = { 0.f };
 
-    convert_any_XYZ_to_LMS(sample, LMS_test, kind);
+    // Restore the original exposure of the patch
+    for(size_t c = 0; c < 3; c++) temp[c] = sample[c] * patches_luminance[k];
+
+    convert_any_XYZ_to_LMS(temp, LMS_test, kind);
       dot_product(LMS_test, g->mix, temp);
     convert_any_LMS_to_XYZ(temp, sample, kind);
   }
@@ -1498,6 +1506,7 @@ void extract_color_checker(const float *const restrict in, float *const restrict
   gtk_label_set_markup(GTK_LABEL(g->label_delta_E), text);
 
   dt_free_align(patches);
+  dt_free_align(patches_luminance);
 }
 
 void validate_color_checker(const float *const restrict in,
@@ -1584,10 +1593,10 @@ void validate_color_checker(const float *const restrict in,
 
     // normalize patch exposure - if shooting close to the light source, the exposure might not be uniform over the surface
     // we don't want the color calibration to try fighting exposure discrepancies, so pretend the exposure is spot-on.
-    const float Y = XYZ[1];
-    float DT_ALIGNED_PIXEL XYZ_ref[4];
-    dt_Lab_to_XYZ(g->checker->values[k].Lab, XYZ_ref);
-    for(size_t c = 0; c < 3; c++) patches[k * 4 + c] = XYZ[c] * XYZ_ref[1] / Y;
+    // const float Y = XYZ[1];
+    // float DT_ALIGNED_PIXEL XYZ_ref[4];
+    // dt_Lab_to_XYZ(g->checker->values[k].Lab, XYZ_ref);
+    for(size_t c = 0; c < 3; c++) patches[k * 4 + c] = XYZ[c]; //  *XYZ_ref[1] / Y;
   }
 
   // Compute the delta E
@@ -1649,13 +1658,15 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece,
   // auto-detect WB upon request
   if(self->dev->gui_attached && g)
   {
+    dt_pthread_mutex_lock(&g->lock);
+
+    gboolean exit = FALSE;
+
     if(g->run_profile && piece->pipe->type == DT_DEV_PIXELPIPE_PREVIEW)
     {
-      dt_pthread_mutex_lock(&g->lock);
       extract_color_checker(in, out, roi_in, g, RGB_to_XYZ, XYZ_to_RGB, data->adaptation);
       g->run_profile = FALSE;
-      dt_pthread_mutex_unlock(&g->lock);
-      return;
+      exit = TRUE;
     }
 
     if(data->illuminant_type == DT_ILLUMINANT_DETECT_EDGES || data->illuminant_type == DT_ILLUMINANT_DETECT_SURFACES)
@@ -1663,17 +1674,19 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece,
       if(piece->pipe->type == DT_DEV_PIXELPIPE_FULL)
       {
         // detection on full image only
-        dt_pthread_mutex_lock(&g->lock);
         auto_detect_WB(in, data->illuminant_type, roi_in->width, roi_in->height, ch, RGB_to_XYZ, g->XYZ);
-        dt_pthread_mutex_unlock(&g->lock);
       }
 
       // passthrough pixels
       dt_simd_memcpy(in, out, roi_in->width * roi_in->height * ch);
 
       dt_control_log(_("auto-detection of white balance completed"));
-      return;
+
+      exit = TRUE;
     }
+
+    dt_pthread_mutex_unlock(&g->lock);
+    if(exit) return;
   }
 
   if(data->illuminant_type == DT_ILLUMINANT_CAMERA)
@@ -2129,7 +2142,10 @@ static void optimize_changed_callback(GtkWidget *widget, gpointer user_data)
 
   const int i = dt_bauhaus_combobox_get(widget);
   dt_conf_set_int("darkroom/modules/channelmixerrgb/optimization", i);
+
+  dt_pthread_mutex_lock(&g->lock);
   g->optimization = i;
+  dt_pthread_mutex_unlock(&g->lock);
 }
 
 static void checker_changed_callback(GtkWidget *widget, gpointer user_data)
@@ -2161,7 +2177,10 @@ static void safety_changed_callback(GtkWidget *widget, gpointer user_data)
   dt_iop_module_t *self = (dt_iop_module_t *)user_data;
   dt_iop_channelmixer_rgb_gui_data_t *g = (dt_iop_channelmixer_rgb_gui_data_t *)self->gui_data;
 
+  dt_pthread_mutex_lock(&g->lock);
   g->safety_margin = dt_bauhaus_slider_get(widget);
+  dt_pthread_mutex_unlock(&g->lock);
+
   dt_conf_set_float("darkroom/modules/channelmixerrgb/safety", g->safety_margin);
   dt_control_queue_redraw_center();
 }
@@ -2229,6 +2248,8 @@ static void commit_profile_callback(GtkWidget *widget, GdkEventButton *event, gp
   dt_iop_channelmixer_rgb_gui_data_t *g = (dt_iop_channelmixer_rgb_gui_data_t *)self->gui_data;
   dt_iop_channelmixer_rgb_params_t *p = (dt_iop_channelmixer_rgb_params_t *)self->params;
 
+  dt_pthread_mutex_lock(&g->lock);
+
   if(!g->profile_ready) return;
 
   p->x = g->xy[0];
@@ -2247,6 +2268,8 @@ static void commit_profile_callback(GtkWidget *widget, GdkEventButton *event, gp
   p->blue[0] = g->mix[2][0];
   p->blue[1] = g->mix[2][1];
   p->blue[2] = g->mix[2][2];
+
+  dt_pthread_mutex_unlock(&g->lock);
 
   ++darktable.gui->reset;
   dt_bauhaus_combobox_set(g->illuminant, p->illuminant);
@@ -3030,6 +3053,8 @@ void gui_update(struct dt_iop_module_t *self)
 
   gui_changed(self, NULL, NULL);
 
+  dt_pthread_mutex_lock(&g->lock);
+
   const int i = dt_conf_get_int("darkroom/modules/channelmixerrgb/colorchecker");
   dt_bauhaus_combobox_set(g->checkers_list, i);
   g->checker = dt_get_color_checker(i);
@@ -3042,6 +3067,10 @@ void gui_update(struct dt_iop_module_t *self)
   if(dt_conf_key_exists("darkroom/modules/channelmixerrgb/safety"))
     g->safety_margin = dt_conf_get_float("darkroom/modules/channelmixerrgb/safety");
   dt_bauhaus_slider_set_soft(g->safety, g->safety_margin);
+
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g->normalize), TRUE);
+
+  dt_pthread_mutex_unlock(&g->lock);
 
   gtk_widget_hide(g->collapsible);
 }
@@ -3516,6 +3545,12 @@ void gui_init(struct dt_iop_module_t *self)
                                              "none is a trade-off between both\n"
                                              "the others are special behaviours to protect some hues"));
   gtk_box_pack_start(GTK_BOX(g->collapsible), GTK_WIDGET(g->optimize), TRUE, TRUE, 0);
+
+  g->normalize = gtk_check_button_new_with_label(_("normalize exposure"));
+  gtk_widget_set_tooltip_text(g->normalize, _("discard the patch luminance from the calibration.\n"
+                                              "useful when the chart is not lit by an even lighting,\n"
+                                              "in which case luminance discrepancies would make color matching inaccurate." ));
+  gtk_box_pack_start(GTK_BOX(g->collapsible), GTK_WIDGET(g->normalize), TRUE, TRUE, 0);
 
   g->safety = dt_bauhaus_slider_new_with_range_and_feedback(self, 0., 1., 0.1, 0.5, 3, TRUE);
   dt_bauhaus_widget_set_label(g->safety, NULL, _("patch scale"));
