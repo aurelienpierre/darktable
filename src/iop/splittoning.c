@@ -21,6 +21,7 @@
 #include "bauhaus/bauhaus.h"
 #include "common/colorspaces.h"
 #include "common/debug.h"
+#include "common/math.h"
 #include "common/opencl.h"
 #include "control/control.h"
 #include "develop/develop.h"
@@ -37,11 +38,9 @@
 #include <assert.h>
 #include <gtk/gtk.h>
 #include <inttypes.h>
-#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
-#define CLIP(x) ((x < 0) ? 0.0 : (x > 1.0) ? 1.0 : x)
 DT_MODULE_INTROSPECTION(1, dt_iop_splittoning_params_t)
 
 typedef struct dt_iop_splittoning_params_t
@@ -153,7 +152,10 @@ void init_presets(dt_iop_module_so_t *self)
 void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const void *const ivoid,
              void *const ovoid, const dt_iop_roi_t *const roi_in, const dt_iop_roi_t *const roi_out)
 {
-  assert(piece->colors == 4);
+  if (!dt_iop_have_required_input_format(4 /*we need full-color pixels*/, self, piece->colors, NULL,
+                                         ivoid, ovoid, roi_in, roi_out))
+    return; // image has been copied through to output and module's trouble flag has been updated
+
   const dt_iop_splittoning_data_t *const data = (dt_iop_splittoning_data_t *)piece->data;
   const float compress = (data->compress / 110.0) / 2.0; // Don't allow 100% compression..
 

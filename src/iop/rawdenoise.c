@@ -21,6 +21,7 @@
 #endif
 #include "bauhaus/bauhaus.h"
 #include "common/darktable.h"
+#include "common/imagebuf.h"
 #include "common/dwt.h"
 #include "control/control.h"
 #include "develop/imageop.h"
@@ -189,6 +190,8 @@ static void wavelet_denoise(const float *const restrict in, float *const restric
 {
   const size_t size = (size_t)(roi->width / 2 + 1) * (roi->height / 2 + 1);
   float *const restrict fimg = dt_alloc_align_float(size);
+  if (!fimg)
+    return;
 
   const int nc = 4;
   for(int c = 0; c < nc; c++) /* denoise R,G1,B,G3 individually */
@@ -278,8 +281,8 @@ static void wavelet_denoise(const float *const restrict in, float *const restric
         float avg = ( window[0][col-1] + window[0][col+1] +
                       window[2][col-1] + window[2][col+1] - blk[~row & 1]*4 )
                     * mul[row & 1] + (window[1][col] + blk[row & 1]) * 0.5;
-        avg = avg < 0 ? 0 : sqrt(avg);
-        float diff = sqrt(BAYER(row,col)) - avg;
+        avg = avg > 0 ? sqrtf(avg) : 0;
+        float diff = sqrtf(BAYER(row,col)) - avg;
         if      (diff < -thold) diff += thold;
         else if (diff >  thold) diff -= thold;
         else diff = 0;
@@ -296,8 +299,9 @@ static inline float vstransform(const float value)
   return sqrtf(MAX(0.0f, value));
 }
 
-static void wavelet_denoise_xtrans(const float *const in, float *out, const dt_iop_roi_t *const roi,
-                                   dt_iop_rawdenoise_data_t *data, const uint8_t (*const xtrans)[6])
+static void wavelet_denoise_xtrans(const float *const restrict in, float *const restrict out,
+                                   const dt_iop_roi_t *const restrict roi,
+                                   const dt_iop_rawdenoise_data_t *const data, const uint8_t (*const xtrans)[6])
 {
   const int width = roi->width;
   const int height = roi->height;
@@ -308,7 +312,7 @@ static void wavelet_denoise_xtrans(const float *const in, float *out, const dt_i
   if (!img)
   {
     // we ran out of memory, so just pass through the image without denoising
-    memcpy(out, in, size * sizeof(float));
+    memcpy(out, in, sizeof(float) * size);
     return;
   }
   float *const fimg = img + width;	// point at the actual color channel contents in the buffer
@@ -450,8 +454,8 @@ static void wavelet_denoise_xtrans(const float *const in, float *out, const dt_i
     // undo the original transform
 #ifdef _OPENMP
 #pragma omp parallel for default(none) \
-    dt_omp_firstprivate(height, fimg, roi, width, xtrans) \
-    shared(c, out) \
+    dt_omp_firstprivate(height, fimg, roi, width, xtrans, c) \
+    dt_omp_sharedconst(out) \
     schedule(static)
 #endif
     for(int row = 0; row < height; row++)
@@ -473,14 +477,11 @@ static void wavelet_denoise_xtrans(const float *const in, float *out, const dt_i
 void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const void *const ivoid,
              void *const ovoid, const dt_iop_roi_t *const roi_in, const dt_iop_roi_t *const roi_out)
 {
-  dt_iop_rawdenoise_data_t *d = (dt_iop_rawdenoise_data_t *)piece->data;
-
-  const int width = roi_in->width;
-  const int height = roi_in->height;
+  const dt_iop_rawdenoise_data_t *const restrict d = (dt_iop_rawdenoise_data_t *)piece->data;
 
   if(!(d->threshold > 0.0f))
   {
-    memcpy(ovoid, ivoid, (size_t)sizeof(float)*width*height);
+    dt_iop_image_copy_by_size(ovoid, ivoid, roi_in->width, roi_in->height, piece->colors);
   }
   else
   {

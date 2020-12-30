@@ -41,6 +41,7 @@ FILE(GLOB SOURCE_FILES
   "common/image.c"
   "common/image_cache.c"
   "common/image_compression.c"
+  "common/imagebuf.c"
   "common/imageio.c"
   "common/imageio_jpeg.c"
   "common/imageio_png.c"
@@ -478,6 +479,15 @@ if(USE_GMIC)
   endif(GMIC_FOUND)
 endif(USE_GMIC)
 
+if(USE_ICU)
+  find_package(ICU)
+  if(ICU_FOUND)
+    add_definitions(-DHAVE_ICU -DSQLITE_CORE -DSQLITE_ENABLE_ICU)
+    list(APPEND LIBS ${ICU_LIBRARIES})
+    set(SOURCES ${SOURCES} "common/sqliteicu.c")
+  endif(ICU_FOUND)
+endif(USE_ICU)
+
 #
 # Add HAVE_xxx defines used by darktable
 #
@@ -658,6 +668,7 @@ if(USE_LUA)
       "lua/lualib.c"
       "lua/luastorage.c"
       "lua/modules.c"
+      "lua/password.c"
       "lua/preferences.c"
       "lua/print.c"
       "lua/storage.c"

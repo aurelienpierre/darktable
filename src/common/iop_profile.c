@@ -49,19 +49,6 @@
 #endif
 
 
-static inline void mat3mul(float *const restrict dst, const float *const restrict m1, const float *const restrict m2)
-{
-  for(int k = 0; k < 3; k++)
-  {
-    for(int i = 0; i < 3; i++)
-    {
-      float x = 0.0f;
-      for(int j = 0; j < 3; j++) x += m1[3 * k + j] * m2[3 * j + i];
-      dst[3 * k + i] = x;
-    }
-  }
-}
-
 static void _transform_from_to_rgb_lab_lcms2(const float *const image_in, float *const image_out, const int width,
                                              const int height, const dt_colorspaces_color_profile_type_t type,
                                              const char *filename, const int intent, const int direction)
@@ -1108,7 +1095,7 @@ void dt_ioppr_transform_image_colorspace_rgb(const float *const restrict image_i
      && strcmp(profile_info_from->filename, profile_info_to->filename) == 0)
   {
     if(image_in != image_out)
-      memcpy(image_out, image_in, width * height * 4 * sizeof(float));
+      memcpy(image_out, image_in, sizeof(float) * 4 * width * height);
 
     return;
   }
@@ -1188,7 +1175,7 @@ void dt_ioppr_get_profile_info_cl(const dt_iop_order_iccprofile_info_t *const pr
 
 cl_float *dt_ioppr_get_trc_cl(const dt_iop_order_iccprofile_info_t *const profile_info)
 {
-  cl_float *trc = malloc(profile_info->lutsize * 6 * sizeof(cl_float));
+  cl_float *trc = malloc(sizeof(cl_float) * 6 * profile_info->lutsize);
   if(trc)
   {
     int x = 0;
@@ -1237,7 +1224,7 @@ cl_int dt_ioppr_build_iccprofile_params_cl(const dt_iop_order_iccprofile_info_t 
   }
   else
   {
-    profile_lut_cl = malloc(1 * 6 * sizeof(cl_float));
+    profile_lut_cl = malloc(sizeof(cl_float) * 1 * 6);
 
     dev_profile_lut = dt_opencl_copy_host_to_device(devid, profile_lut_cl, 1, 1 * 6, sizeof(float));
     if(dev_profile_lut == NULL)
@@ -1300,7 +1287,7 @@ int dt_ioppr_transform_image_colorspace_cl(struct dt_iop_module_t *self, const i
     return FALSE;
   }
 
-  const int ch = 4;
+  const size_t ch = 4;
   float *src_buffer = NULL;
   int in_place = (dev_img_in == dev_img_out);
 
@@ -1343,7 +1330,7 @@ int dt_ioppr_transform_image_colorspace_cl(struct dt_iop_module_t *self, const i
 
     if(in_place)
     {
-      dev_tmp = dt_opencl_alloc_device(devid, width, height, 4 * sizeof(float));
+      dev_tmp = dt_opencl_alloc_device(devid, width, height, sizeof(float) * 4);
       if(dev_tmp == NULL)
       {
         fprintf(stderr,
@@ -1407,7 +1394,7 @@ int dt_ioppr_transform_image_colorspace_cl(struct dt_iop_module_t *self, const i
   else
   {
     // no matrix, call lcms2
-    src_buffer = dt_alloc_align(64, width * height * ch * sizeof(float));
+    src_buffer = dt_alloc_align_float(ch * width * height);
     if(src_buffer == NULL)
     {
       fprintf(stderr, "[dt_ioppr_transform_image_colorspace_cl] error allocating memory for color transformation 1\n");
@@ -1476,7 +1463,7 @@ int dt_ioppr_transform_image_colorspace_rgb_cl(const int devid, cl_mem dev_img_i
     return TRUE;
   }
 
-  const int ch = 4;
+  const size_t ch = 4;
   float *src_buffer_in = NULL;
   float *src_buffer_out = NULL;
   int in_place = (dev_img_in == dev_img_out);
@@ -1519,7 +1506,7 @@ int dt_ioppr_transform_image_colorspace_rgb_cl(const int devid, cl_mem dev_img_i
 
     if(in_place)
     {
-      dev_tmp = dt_opencl_alloc_device(devid, width, height, 4 * sizeof(float));
+      dev_tmp = dt_opencl_alloc_device(devid, width, height, sizeof(float) * 4);
       if(dev_tmp == NULL)
       {
         fprintf(
@@ -1617,8 +1604,8 @@ int dt_ioppr_transform_image_colorspace_rgb_cl(const int devid, cl_mem dev_img_i
   else
   {
     // no matrix, call lcms2
-    src_buffer_in = dt_alloc_align(64, width * height * ch * sizeof(float));
-    src_buffer_out = dt_alloc_align(64, width * height * ch * sizeof(float));
+    src_buffer_in  = dt_alloc_align_float(ch * width * height);
+    src_buffer_out = dt_alloc_align_float(ch * width * height);
     if(src_buffer_in == NULL || src_buffer_out == NULL)
     {
       fprintf(stderr,

@@ -29,18 +29,6 @@ static inline size_t _box_size(const int *const box)
   return (size_t)((box[3] - box[1]) * (box[2] - box[0]));
 }
 
-//TODO: move into a common header so others can use this function and macros if needed
-static void *dt_alloc_perthread(const size_t n, const size_t objsize, size_t* padded_size)
-{
-  const size_t alloc_size = n * objsize;
-  const size_t cache_lines = (alloc_size+63)/64;
-  *padded_size = 64 * cache_lines / objsize;
-  return dt_alloc_align(64, 64 * cache_lines * dt_get_num_threads());
-}
-#define dt_get_perthread(buf, padsize) ((buf) + ((padsize) * dt_get_thread_num()))
-#define dt_get_bythread(buf, padsize, tnum) ((buf) + ((padsize) * (tnum)))
-
-
 #ifdef _OPENMP
 #pragma omp declare simd aligned(rgb, JzCzhz: 16) uniform(profile)
 #endif
@@ -117,12 +105,12 @@ static void color_picker_helper_4ch_parallel(const dt_iop_buffer_dsc_t *const ds
 
   const float w = 1.0f / (float)size;
 
-  const int numthreads = dt_get_num_threads();
+  const size_t numthreads = dt_get_num_threads();
 
   size_t allocsize;
-  float *const mean = dt_alloc_perthread(3, sizeof(float), &allocsize);
-  float *const mmin = dt_alloc_perthread(3, sizeof(float), &allocsize);
-  float *const mmax = dt_alloc_perthread(3, sizeof(float), &allocsize);
+  float *const restrict mean = dt_alloc_perthread_float(3, &allocsize);
+  float *const restrict mmin = dt_alloc_perthread_float(3, &allocsize);
+  float *const restrict mmax = dt_alloc_perthread_float(3, &allocsize);
 
   for(int n = 0; n < allocsize * numthreads; n++)
   {
@@ -136,9 +124,9 @@ static void color_picker_helper_4ch_parallel(const dt_iop_buffer_dsc_t *const ds
   dt_omp_firstprivate(w, cst_to, pixel, width, box, mean, mmin, mmax, profile, allocsize)
 #endif
   {
-    float *const tmean = dt_get_perthread(mean,allocsize);
-    float *const tmmin = dt_get_perthread(mmin,allocsize);
-    float *const tmmax = dt_get_perthread(mmax,allocsize);
+    float *const restrict tmean = dt_get_perthread(mean,allocsize);
+    float *const restrict tmmin = dt_get_perthread(mmin,allocsize);
+    float *const restrict tmmax = dt_get_perthread(mmax,allocsize);
 
 #ifdef _OPENMP
 #pragma omp for schedule(static) collapse(2)
@@ -178,9 +166,9 @@ static void color_picker_helper_4ch_parallel(const dt_iop_buffer_dsc_t *const ds
     }
   }
 
-  free(mmax);
-  free(mmin);
-  free(mean);
+  dt_free_align(mmax);
+  dt_free_align(mmin);
+  dt_free_align(mean);
 }
 
 static void color_picker_helper_4ch(const dt_iop_buffer_dsc_t *dsc, const float *const pixel,
@@ -243,13 +231,13 @@ static void color_picker_helper_bayer_parallel(const dt_iop_buffer_dsc_t *const 
 
   uint32_t weights[4] = { 0u, 0u, 0u, 0u };
 
-  const int numthreads = dt_get_num_threads();
+  const size_t numthreads = dt_get_num_threads();
 
   //TODO: convert to use dt_alloc_perthread
-  float *const msum = malloc((size_t)4 * numthreads * sizeof(float));
-  float *const mmin = malloc((size_t)4 * numthreads * sizeof(float));
-  float *const mmax = malloc((size_t)4 * numthreads * sizeof(float));
-  uint32_t *const cnt = malloc((size_t)4 * numthreads * sizeof(uint32_t));
+  float *const msum = malloc(sizeof(float) * numthreads * 4);
+  float *const mmin = malloc(sizeof(float) * numthreads * 4);
+  float *const mmax = malloc(sizeof(float) * numthreads * 4);
+  uint32_t *const cnt = malloc(sizeof(uint32_t) * numthreads * 4);
 
   for(int n = 0; n < 4 * numthreads; n++)
   {
@@ -372,13 +360,13 @@ static void color_picker_helper_xtrans_parallel(const dt_iop_buffer_dsc_t *const
 
   uint32_t weights[3] = { 0u, 0u, 0u };
 
-  const int numthreads = dt_get_num_threads();
+  const size_t numthreads = dt_get_num_threads();
 
   //TODO: convert to use dt_alloc_perthread
-  float *const msum = malloc((size_t)3 * numthreads * sizeof(float));
-  float *const mmin = malloc((size_t)3 * numthreads * sizeof(float));
-  float *const mmax = malloc((size_t)3 * numthreads * sizeof(float));
-  uint32_t *const cnt = malloc((size_t)3 * numthreads * sizeof(uint32_t));
+  float *const mmin = malloc(sizeof(float) * numthreads * 3);
+  float *const msum = malloc(sizeof(float) * numthreads * 3);
+  float *const mmax = malloc(sizeof(float) * numthreads * 3);
+  uint32_t *const cnt = malloc(sizeof(uint32_t) * numthreads * 3);
 
   for(int n = 0; n < 3 * numthreads; n++)
   {

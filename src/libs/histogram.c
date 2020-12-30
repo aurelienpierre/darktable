@@ -217,7 +217,8 @@ static void _lib_histogram_process_waveform(dt_lib_histogram_t *d, const float *
   // note that threads must handle >= bin_width columns to not overwrite each other
   // FIXME: instead outer loop could be by bin
   // FIXME: could flip x/y axes here and when reading to make row-wise iteration?
-#ifdef _OPENMP
+  // Quick and Dirty fix: parallelization breaks display of histogram and introduces massive lags on OSX
+#if defined(_OPENMP) && !defined(__APPLE__)
 #pragma omp parallel for simd default(none) \
   dt_omp_firstprivate(input, width, height, wf_width, bin_width, _height, scale) \
   dt_omp_sharedconst(wf_linear) \
@@ -280,7 +281,7 @@ static void dt_lib_histogram_process(struct dt_lib_module_t *self, const float *
     {
       const dt_iop_order_iccprofile_info_t *const profile_info_to =
         dt_ioppr_add_profile_info_to_list(dev, out_profile_type, out_profile_filename, DT_INTENT_PERCEPTUAL);
-      img_display = dt_alloc_align(64, width * height * 4 * sizeof(float));
+      img_display = dt_alloc_align_float((size_t)4 * width * height);
       if(!img_display) return;
       dt_ioppr_transform_image_colorspace_rgb(input, img_display, width, height, profile_info_from,
                                               profile_info_to, "final histogram");
@@ -1235,10 +1236,10 @@ void gui_init(dt_lib_module_t *self)
   // be scaled. 175 rows is reasonable CPU usage and represents plenty
   // of tonal gradation. 256 would match the # of bins in a regular
   // histogram.
-  d->waveform_height = 175;
-  d->waveform_linear = dt_alloc_align(64, sizeof(float) * d->waveform_height * d->waveform_max_width * 4);
-  d->waveform_display = dt_alloc_align(64, sizeof(float) * d->waveform_height * d->waveform_max_width * 4);
-  d->waveform_8bit = dt_alloc_align(64, sizeof(uint8_t) * d->waveform_height * d->waveform_max_width * 4);
+  d->waveform_height  = 175;
+  d->waveform_linear  = dt_alloc_align_float((size_t)4 * d->waveform_height * d->waveform_max_width);
+  d->waveform_display = dt_alloc_align_float((size_t)4 * d->waveform_height * d->waveform_max_width);
+  d->waveform_8bit    = dt_alloc_align(64, sizeof(uint8_t) * 4 * d->waveform_height * d->waveform_max_width);
 
   // proxy functions and data so that pixelpipe or tether can
   // provide data for a histogram
