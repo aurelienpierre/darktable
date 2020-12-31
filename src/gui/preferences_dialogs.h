@@ -18,8 +18,8 @@
 
 #pragma once
 
-/** shows the preferences dialog and blocks until it's closed. */
-void dt_gui_preferences_show();
+GtkWidget *dt_prefs_init_dialog_collect(GtkWidget *dialog);
+GtkWidget *dt_prefs_init_dialog_import(GtkWidget *dialog);
 
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
 // vim: shiftwidth=2 expandtab tabstop=2 cindent

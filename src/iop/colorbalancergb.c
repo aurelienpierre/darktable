@@ -172,20 +172,6 @@ static inline void repack_3x3_to_3xSSE(const float input[9], float output[3][4])
 }
 
 
-static void mat3mul(float *dst, const float *const m1, const float *const m2)
-{
-  for(int k = 0; k < 3; ++k)
-  {
-    for(int i = 0; i < 3; ++i)
-    {
-      float x = 0.0f;
-      for(int j = 0; j < 3; j++) x += m1[4 * k + j] * m2[4 * j + i];
-      dst[4 * k + i] = x;
-    }
-  }
-}
-
-
 void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const void *const ivoid,
              void *const ovoid, const dt_iop_roi_t *const roi_in, const dt_iop_roi_t *const roi_out)
 {
