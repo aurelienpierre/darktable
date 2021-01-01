@@ -116,7 +116,6 @@ typedef struct dt_iop_channelmixer_rgb_gui_data_t
   GtkWidget *color_picker;
   float xy[2];
   float XYZ[4];
-  dt_pthread_mutex_t lock;
 
   point_t box[4];           // the current coordinates, possibly non rectangle, of the bounding box for the color checker
   point_t ideal_box[4];     // the desired coordinates of the perfect rectangle bounding box for the color checker
@@ -1645,14 +1644,14 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece,
   // auto-detect WB upon request
   if(self->dev->gui_attached && g)
   {
-    dt_pthread_mutex_lock(&g->lock);
-
     gboolean exit = FALSE;
 
     if(g->run_profile && piece->pipe->type == DT_DEV_PIXELPIPE_PREVIEW)
     {
+      dt_iop_gui_enter_critical_section(self);
       extract_color_checker(in, out, roi_in, g, RGB_to_XYZ, XYZ_to_RGB, data->adaptation);
       g->run_profile = FALSE;
+      dt_iop_gui_leave_critical_section(self);
       exit = TRUE;
     }
 
@@ -1674,7 +1673,6 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece,
       exit = TRUE;
     }
 
-    dt_pthread_mutex_unlock(&g->lock);
     if(exit) return;
   }
 
@@ -1855,7 +1853,7 @@ int mouse_moved(struct dt_iop_module_t *self, double x, double y, double pressur
   // this ensure smooth updates
   if(g->drag_drop)
   {
-    dt_pthread_mutex_lock(&g->lock);
+    dt_iop_gui_enter_critical_section(self);
     g->click_end.x = pzx;
     g->click_end.y = pzy;
 
@@ -1863,14 +1861,14 @@ int mouse_moved(struct dt_iop_module_t *self, double x, double y, double pressur
 
     g->click_start.x = pzx;
     g->click_start.y = pzy;
-    dt_pthread_mutex_unlock(&g->lock);
+    dt_iop_gui_leave_critical_section(self);
 
     dt_control_queue_redraw_center();
     return 1;
   }
 
   // Find out if we are close to a node
-  dt_pthread_mutex_lock(&g->lock);
+  dt_iop_gui_enter_critical_section(self);
   g->is_cursor_close = FALSE;
 
   for(size_t k = 0; k < 4; k++)
@@ -1883,7 +1881,7 @@ int mouse_moved(struct dt_iop_module_t *self, double x, double y, double pressur
     else
       g->active_node[k] = FALSE;
   }
-  dt_pthread_mutex_unlock(&g->lock);
+  dt_iop_gui_leave_critical_section(self);
 
   // if cursor is close from a node, remove the system pointer arrow to prevent hiding the spot behind it
   if(g->is_cursor_close)
@@ -1925,11 +1923,11 @@ int button_pressed(struct dt_iop_module_t *self, double x, double y, double pres
   pzx *= wd;
   pzy *= ht;
 
-  dt_pthread_mutex_lock(&g->lock);
+  dt_iop_gui_enter_critical_section(self);
   g->drag_drop = TRUE;
   g->click_start.x = pzx;
   g->click_start.y = pzy;
-  dt_pthread_mutex_unlock(&g->lock);
+  dt_iop_gui_leave_critical_section(self);
 
   dt_control_queue_redraw_center();
 
@@ -1957,12 +1955,12 @@ int button_released(struct dt_iop_module_t *self, double x, double y, int which,
   pzx *= wd;
   pzy *= ht;
 
-  dt_pthread_mutex_lock(&g->lock);
+  dt_iop_gui_enter_critical_section(self);
   g->drag_drop = FALSE;
   g->click_end.x = pzx;
   g->click_end.y = pzy;
   update_bounding_box(g, g->click_end.x - g->click_start.x, g->click_end.y - g->click_start.y, wd, ht);
-  dt_pthread_mutex_unlock(&g->lock);
+  dt_iop_gui_leave_critical_section(self);
 
   dt_control_queue_redraw_center();
 
@@ -2132,9 +2130,9 @@ static void optimize_changed_callback(GtkWidget *widget, gpointer user_data)
   const int i = dt_bauhaus_combobox_get(widget);
   dt_conf_set_int("darkroom/modules/channelmixerrgb/optimization", i);
 
-  dt_pthread_mutex_lock(&g->lock);
+  dt_iop_gui_enter_critical_section(self);
   g->optimization = i;
-  dt_pthread_mutex_unlock(&g->lock);
+  dt_iop_gui_leave_critical_section(self);
 }
 
 static void checker_changed_callback(GtkWidget *widget, gpointer user_data)
@@ -2152,10 +2150,10 @@ static void checker_changed_callback(GtkWidget *widget, gpointer user_data)
   const float ht = dev->preview_pipe->backbuf_height;
   if(wd == 0.f || ht == 0.f) return;
 
-  dt_pthread_mutex_lock(&g->lock);
+  dt_iop_gui_enter_critical_section(self);
   g->profile_ready = FALSE;
   init_bounding_box(g, wd, ht);
-  dt_pthread_mutex_unlock(&g->lock);
+  dt_iop_gui_leave_critical_section(self);
 
   dt_control_queue_redraw_center();
 }
@@ -2166,9 +2164,9 @@ static void safety_changed_callback(GtkWidget *widget, gpointer user_data)
   dt_iop_module_t *self = (dt_iop_module_t *)user_data;
   dt_iop_channelmixer_rgb_gui_data_t *g = (dt_iop_channelmixer_rgb_gui_data_t *)self->gui_data;
 
-  dt_pthread_mutex_lock(&g->lock);
+  dt_iop_gui_enter_critical_section(self);
   g->safety_margin = dt_bauhaus_slider_get(widget);
-  dt_pthread_mutex_unlock(&g->lock);
+  dt_iop_gui_leave_critical_section(self);
 
   dt_conf_set_float("darkroom/modules/channelmixerrgb/safety", g->safety_margin);
   dt_control_queue_redraw_center();
@@ -2196,10 +2194,10 @@ static void start_profiling_callback(GtkWidget *togglebutton, dt_iop_module_t *s
     dt_bauhaus_widget_set_quad_paint(g->start_profiling, dtgtk_cairo_paint_solid_arrow, CPF_STYLE_BOX | CPF_DIRECTION_LEFT, NULL);
 
   // init bounding box
-  dt_pthread_mutex_lock(&g->lock);
+  dt_iop_gui_enter_critical_section(self);
   g->profile_ready = FALSE;
   init_bounding_box(g, wd, ht);
-  dt_pthread_mutex_unlock(&g->lock);
+  dt_iop_gui_leave_critical_section(self);
 
   dt_control_queue_redraw_center();
 }
@@ -2210,9 +2208,9 @@ static void run_profile_callback(GtkWidget *widget, GdkEventButton *event, gpoin
   dt_iop_module_t *self = (dt_iop_module_t *)user_data;
   dt_iop_channelmixer_rgb_gui_data_t *g = (dt_iop_channelmixer_rgb_gui_data_t *)self->gui_data;
 
-  dt_pthread_mutex_lock(&g->lock);
+  dt_iop_gui_enter_critical_section(self);
   g->run_profile = TRUE;
-  dt_pthread_mutex_unlock(&g->lock);
+  dt_iop_gui_leave_critical_section(self);
 
   dt_dev_reprocess_all(self->dev);
 }
@@ -2223,9 +2221,9 @@ static void run_validation_callback(GtkWidget *widget, GdkEventButton *event, gp
   dt_iop_module_t *self = (dt_iop_module_t *)user_data;
   dt_iop_channelmixer_rgb_gui_data_t *g = (dt_iop_channelmixer_rgb_gui_data_t *)self->gui_data;
 
-  dt_pthread_mutex_lock(&g->lock);
+  dt_iop_gui_enter_critical_section(self);
   g->run_validation = TRUE;
-  dt_pthread_mutex_unlock(&g->lock);
+  dt_iop_gui_leave_critical_section(self);
 
   dt_dev_reprocess_all(self->dev);
 }
@@ -2239,7 +2237,7 @@ static void commit_profile_callback(GtkWidget *widget, GdkEventButton *event, gp
 
   if(!g->profile_ready) return;
 
-  dt_pthread_mutex_lock(&g->lock);
+  dt_iop_gui_enter_critical_section(self);
 
   p->x = g->xy[0];
   p->y = g->xy[1];
@@ -2258,7 +2256,7 @@ static void commit_profile_callback(GtkWidget *widget, GdkEventButton *event, gp
   p->blue[1] = g->mix[2][1];
   p->blue[2] = g->mix[2][2];
 
-  dt_pthread_mutex_unlock(&g->lock);
+  dt_iop_gui_leave_critical_section(self);
 
   ++darktable.gui->reset;
   dt_bauhaus_combobox_set(g->illuminant, p->illuminant);
@@ -2383,6 +2381,10 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
   float custom_wb[4];
   get_white_balance_coeff(self, custom_wb);
   illuminant_to_xy(p->illuminant, &(self->dev->image_storage), custom_wb, &x, &y, p->temperature, p->illum_fluo, p->illum_led);
+
+  // if illuminant is set as camera, x and y are set on-the-fly at commit time, so we need to set adaptation too
+  if(p->illuminant == DT_ILLUMINANT_CAMERA)
+    check_if_close_to_daylight(x, y, NULL, NULL, &(d->adaptation));
 
   d->illuminant_type = p->illuminant;
 
@@ -3042,7 +3044,7 @@ void gui_update(struct dt_iop_module_t *self)
 
   gui_changed(self, NULL, NULL);
 
-  dt_pthread_mutex_lock(&g->lock);
+  dt_iop_gui_enter_critical_section(self);
 
   const int i = dt_conf_get_int("darkroom/modules/channelmixerrgb/colorchecker");
   dt_bauhaus_combobox_set(g->checkers_list, i);
@@ -3059,7 +3061,7 @@ void gui_update(struct dt_iop_module_t *self)
 
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g->normalize), TRUE);
 
-  dt_pthread_mutex_unlock(&g->lock);
+  dt_iop_gui_leave_critical_section(self);
 
   gtk_widget_hide(g->collapsible);
 }
@@ -3570,8 +3572,6 @@ void gui_cleanup(struct dt_iop_module_t *self)
     dt_free_align(g->delta_E_in);
     g->delta_E_in = NULL;
   }
-
-  dt_pthread_mutex_destroy(&g->lock);
 
   IOP_GUI_FREE;
 }
