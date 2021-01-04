@@ -328,7 +328,7 @@ inline static void wavelets_reconstruct_RGB(const float *const restrict HF, cons
 
 static void heat_PDE_inpanting(const float *const restrict input,
                                float *const restrict output, const uint8_t *const restrict mask,
-                               const size_t width, const size_t height, const size_t ch,
+                               const size_t width, const size_t height, const size_t ch, const int mult,
                                const float texture, const float structure, const float edges, const float regularization)
 {
   // Simultaneous inpainting for image structure and texture using anisotropic heat transfer model
@@ -350,7 +350,7 @@ static void heat_PDE_inpanting(const float *const restrict input,
 
   #ifdef _OPENMP
   #pragma omp parallel for default(none) \
-  dt_omp_firstprivate(input, output, mask, height, width, ch, K, L, A, B, h, compute_structure, compute_texture, has_mask) \
+  dt_omp_firstprivate(input, output, mask, height, width, ch, K, L, A, B, h, compute_structure, compute_texture, has_mask, mult) \
   schedule(dynamic) collapse(2)
   #endif
   for(size_t i = 0; i < height; ++i)
@@ -368,10 +368,20 @@ static void heat_PDE_inpanting(const float *const restrict input,
         const size_t i_prev = CLAMP((int)(i - h), (int)0, (int)height - 1); // x
         const size_t i_next = CLAMP((int)(i + h), (int)0, (int)height - 1); // x
 
+        const size_t j_far_prev = CLAMP((int)(j - mult * h), (int)0, (int)width - 1); // y
+        const size_t j_far_next = CLAMP((int)(j + mult * h), (int)0, (int)width - 1); // y
+        const size_t i_far_prev = CLAMP((int)(i - mult * h), (int)0, (int)height - 1); // x
+        const size_t i_far_next = CLAMP((int)(i + mult * h), (int)0, (int)height - 1); // x
+
         const size_t DT_ALIGNED_ARRAY idx_grad[9]
             = { (i_prev * width + j_prev) * ch, (i_prev * width + j) * ch, (i_prev * width + j_next) * ch,
                 (i * width + j_prev) * ch,      (i * width + j) * ch,      (i* width + j_next) * ch,
                 (i_next * width + j_prev) * ch, (i_next * width + j) * ch, (i_next * width + j_next) * ch };
+
+        const size_t DT_ALIGNED_ARRAY idx_lapl[9]
+            = { (i_far_prev * width + j_far_prev) * ch, (i_far_prev * width + j) * ch, (i_far_prev * width + j_far_next) * ch,
+                (i * width + j_far_prev) * ch,      (i * width + j) * ch,      (i* width + j_far_next) * ch,
+                (i_far_next * width + j_far_prev) * ch, (i_far_next * width + j) * ch, (i_far_next * width + j_far_next) * ch };
 
         float DT_ALIGNED_ARRAY kern_grad[9][4] = { { 0.f } };
         float DT_ALIGNED_ARRAY kern_lap[9][4] = { { 0.f } };
@@ -383,9 +393,15 @@ static void heat_PDE_inpanting(const float *const restrict input,
         const float *const restrict east  = __builtin_assume_aligned(input + idx_grad[5], 16);
         const float *const restrict west  = __builtin_assume_aligned(input + idx_grad[3], 16);
 
+        const float *const restrict north_far = __builtin_assume_aligned(input + idx_lapl[1], 16);
+        const float *const restrict south_far = __builtin_assume_aligned(input + idx_lapl[7], 16);
+        const float *const restrict east_far  = __builtin_assume_aligned(input + idx_lapl[5], 16);
+        const float *const restrict west_far  = __builtin_assume_aligned(input + idx_lapl[3], 16);
+
         // build the local anisotropic convolution filters
         #ifdef _OPENMP
-        #pragma omp simd aligned(north, south, west, east, TV_grad, TV_lap : 16) aligned(idx_grad, kern_grad, kern_lap : 64)
+        #pragma omp simd aligned(north, south, west, east, TV_grad, TV_lap, north_far, south_far, east_far, west_far : 16) \
+          aligned(idx_grad, idx_lapl, kern_grad, kern_lap : 64)
         #endif
         for(size_t c = 0; c < 4; c++)
         {
@@ -432,8 +448,8 @@ static void heat_PDE_inpanting(const float *const restrict input,
           if(compute_texture)
           {
             // Compute the laplacian with centered finite differences - warning : x is vertical, y is horizontal
-            const float grad_x = south[c] + north[c] - 2.f * input[index + c]; // du(i, j) / dx
-            const float grad_y = east[c] + west[c] - 2.f * input[index + c];   // du(i, j) / dy
+            const float grad_x = south_far[c] + north_far[c] - 2.f * input[index + c]; // du(i, j) / dx
+            const float grad_y = east_far[c] + west_far[c] - 2.f * input[index + c];   // du(i, j) / dy
 
             // Find the dampening factor
             const float TV = hypotf(grad_x, grad_y);
@@ -483,26 +499,28 @@ static void heat_PDE_inpanting(const float *const restrict input,
 
           for(size_t k = 0; k < 9; k++)
           {
-            const float pix = input[idx_grad[k] + c];
-
             // Convolve first-order term (gradient)
-            acc1 += kern_grad[k][c] * pix;
+            acc1 += kern_grad[k][c] * input[idx_grad[k] + c];
 
             // Convolve second-order term (laplacian)
-            acc2 += kern_lap[k][c] * pix;
+            acc2 += kern_lap[k][c] * input[idx_lapl[k] + c];
           }
 
           grad[c] = acc1;
           lapl[c] = acc2;
         }
 
+        // Use a collaborative regularization
+        const float TV_lap_min = fminf(fminf(TV_lap[0], TV_lap[1]), TV_lap[2]);
+        const float TV_grad_min = fminf(fminf(TV_grad[0], TV_grad[1]), TV_grad[2]);
+
         // Update the solution
         #ifdef _OPENMP
-        #pragma omp simd aligned(input, output: 64) aligned(TV_grad, TV_lap, grad, lapl : 16)
+        #pragma omp simd aligned(input, output: 64) aligned(grad, lapl : 16)
         #endif
         for(size_t c = 0; c < 4; c++)
         {
-          output[index + c] = input[index + c] + A * lapl[c] * TV_lap[c] + B * grad[c] * TV_grad[c];
+          output[index + c] = input[index + c] + A * lapl[c] * TV_lap_min + B * grad[c] * TV_grad_min;
         }
       }
       else
@@ -635,7 +653,8 @@ static inline gint reconstruct_highlights(const float *const restrict in, float 
     if(s == scales - 1)
     {
       // if it's the last scale, then LF is the residual so we blur it too as if it was the next HF
-      const float factor_lf = data->update * diffusion_scale_factor((float)(1 << (s + 1)), data->radius, zoom, data->model);
+      const int next_mult = 1 << (s + 1);
+      const float factor_lf = data->update * diffusion_scale_factor((float)(next_mult), data->radius, zoom, data->model);
 
       for(size_t it = 0; it < data->iterations; it++)
       {
@@ -655,9 +674,9 @@ static inline gint reconstruct_highlights(const float *const restrict in, float 
           LF_out = temp2;
         }
 
-        heat_PDE_inpanting(LF_in, LF_out, mask, roi_out->width, roi_out->height, ch,
+        heat_PDE_inpanting(LF_in, LF_out, mask, roi_out->width, roi_out->height, ch, next_mult,
                            factor_lf * texture,
-                           factor_lf * structure, edges, regularization);
+                           structure, edges, regularization);
       }
 
       LF = LF_out;
@@ -681,9 +700,9 @@ static inline gint reconstruct_highlights(const float *const restrict in, float 
         HF_out = temp1;
       }
 
-      heat_PDE_inpanting(HF_in, HF_out, mask, roi_out->width, roi_out->height, ch,
+      heat_PDE_inpanting(HF_in, HF_out, mask, roi_out->width, roi_out->height, ch, mult,
                           factor * texture,
-                          factor * structure, edges, regularization);
+                          structure, edges, regularization);
     }
 
     HF_RGB_temp = HF_out;
