@@ -167,7 +167,7 @@
 @define-color colorlabel_red rgb(230,0,0);
 @define-color colorlabel_green rgb(0,230,0);
 @define-color colorlabel_blue rgb(0,0,230);
-@define-color colorlabel_yellow rgb(230,230,0);
+@define-color colorlabel_yellow rgb(255,180,0);
 @define-color colorlabel_purple rgb(230,0,230);
 
 /* Reset GTK defaults - Otherwise dt inherits Adwaita default theme dark */
@@ -312,6 +312,7 @@ textview
   min-height: 0;
   min-width: 0;
   padding: 0px;
+  font-family: sans;
 }
 
 entry
@@ -476,7 +477,9 @@ overshoot.right
 /* Frame around modules boxes */
 /*** NOTE: bauhaus controls inherit their font properties from there ***/
 #lib-plugin-ui,
-#iop-plugin-ui
+#iop-plugin-ui,
+#basics-box,
+#basics-box-labels
 {
   color: @plugin_fg_color;
   background-color: @plugin_bg_color;
@@ -486,7 +489,7 @@ overshoot.right
 #lib-plugin-ui-main,
 #blending-box
 {
-  padding: 0.75em;
+  padding: 0.66em;
 }
 
 /* icon buttons in modules main body */
@@ -498,7 +501,8 @@ overshoot.right
 #blending-box #dt-button,
 #blending-box #dt-toggle-button,
 #blending-box #show_mask_button,
-#blending-box #keep-active
+#blending-box #keep-active,
+#basics-widget #dt-button
 {
   min-height: 1.3em;
   min-width: 1.3em;
@@ -584,7 +588,6 @@ overshoot.right
 #module-reset-button,
 #module-enable-button,
 #module-instance-button,
-#module-enable-button,
 #module-collapse-button,
 #module-always-enabled-button,
 #module-always-disabled-button
@@ -750,7 +753,7 @@ dialog .dialog-vbox scrolledwindow
 dialog button
 {
   padding: 2px;
-  margin: 1px 2px;
+  margin: 1px;
 }
 
 dialog headerbar
@@ -838,6 +841,12 @@ dialog .dialog-vbox notebook stack box box checkbutton label  /* fix a margin on
     padding: 2px;
 }
 
+/* preferences module dialog window */
+.dialog-action-box
+{
+  margin-top: 5px;
+}
+
 /*--------------------------------------------------------
   - Bauhaus controls (sliders and comboboxes in modules) -
   --------------------------------------------------------*/
@@ -902,8 +911,7 @@ popover,
 combobox window,
 dialog combobox window,
 #bauhaus-combobox *,
-#bauhaus-slider *,
-#modulegroups-iop-popup
+#bauhaus-slider *
 {
   opacity: 1;  /* this is needed for tooltip on/off feature with Shift+t shortcut */
   background-color: @tooltip_bg_color;
@@ -915,9 +923,10 @@ dialog combobox window,
   padding: 0.2em 0;
 }
 
-#modulegroups-iop-popup viewport
+menuitem arrow
 {
-  background-color: @tooltip_bg_color;
+  border: 0;
+  margin-right: 2px;
 }
 
 popover
@@ -1335,22 +1344,9 @@ margin: 0 2px;
 
 #modulegroups-header #dt-button,
 #modulegroups-preset #dt-button,
-#modulegroups-preset-activated #dt-button,
-#modulegroups-iop-popup-name,
-#modulegroups-iop-popup-cb
+#modulegroups-preset-activated #dt-button
 {
   border: 0;
-}
-
-#modulegroups_iop_title,
-#modulegroups-iop-popup-name
-{
-   padding: 0.2em 0.5em;
-}
-
-#modulegroups-iop-popup-cb
-{
-  margin-left: 2em;
 }
 
 #modulegroups-groups-title
@@ -1438,6 +1434,81 @@ margin: 0 2px;
   padding: 0.45em;
 }
 
+#basics-box,
+#basics-box-labels
+{
+  padding-bottom: 0.75em;
+}
+
+#basics-box
+{
+  padding-top: 0.5em;
+}
+
+#basics-box #module-enable-button,
+#basics-box-labels #module-enable-button
+{
+  min-height: 1em;
+  min-width: 1em;
+  border: none;
+}
+
+#basics-link
+{
+  min-height: 1.1em;
+  min-width: 1.1em;
+  margin: 0 2px 2px 2px;
+  border: none;
+}
+
+#basics-box-labels #basics-widget,
+#basics-box-labels #section_label
+{
+  padding-top: 2px;
+  margin: 0 0.75em 0.25em 0.75em;
+}
+
+#basics-box #basics-widget
+{
+  margin: 0 0.75em 0.5em 0.75em;
+}
+
+#basics-box-labels #section_label
+{
+  margin-top: 1em;
+}
+
+#basics-widget.basics-widget_group_start
+{
+  padding-top: 0.5em;
+  border-top: 0.5px solid @section_label;
+}
+
+#basics-iop_name
+{
+  padding-left: 0.25em;
+}
+
+#basics-widget #bauhaus-combobox + #dt-button,
+#basics-widget #bauhaus-slider + #dt-button
+{
+  margin-left: 0.5em;
+}
+
+#modulegroups-popup *
+{
+ padding-top: 0.1em;
+ padding-bottom: 0.1em;
+}
+
+#modulegroups-popup-title *
+{
+  padding-left: 2em;
+  padding-bottom: 0.2em;
+  font-weight: bold;
+  color: @plugin_label_color;
+}
+
 /*---------------------------------------------------------------
   - Set sidebars settings on preferences window and filechooser -
   ---------------------------------------------------------------*/
@@ -1486,7 +1557,7 @@ filechooser .sidebar row:selected:hover .sidebar-label,
 #preferences_box .sidebar row,
 #preferences_box .sidebar row:selected
 {
-  border-left: 2px solid @plugin_bg_color; /* be sure border is set but not visible if category on sidebar not selected but keep same size and type for selected category ; color needs to be same as sidebar scrolledwindow background-color few lines above */
+  border-left: 2px solid @bg_color; /* be sure border is set but not visible if category on sidebar not selected but keep same size and type for selected category ; color needs to be same as sidebar scrolledwindow background-color few lines above */
 }
 
 filechooser row:selected .sidebar-icon,  /* set icon instead of border for filechooser dialog window */
@@ -1531,7 +1602,9 @@ filechooser widget treeview
   color: @field_fg;
 }
 
-treeview header button,
+treeview header widget button,
+#iop-plugin-ui treeview header button,
+#lib-plugin-ui treeview header button,
 #preferences_notebook header button,
 .accels_window_list header button
 {
@@ -1544,6 +1617,8 @@ treeview header button,
 }
 
 treeview header label,
+#iop-plugin-ui treeview header label,
+#lib-plugin-ui treeview header label,
 #preferences_notebook header button label,
 .accels_window_list header button label
 {

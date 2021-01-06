@@ -16,6 +16,7 @@
     along with darktable.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "common/debug.h"
+#include "common/imagebuf.h"
 #include "control/conf.h"
 #include "control/control.h"
 #include "develop/blend.h"
@@ -879,12 +880,14 @@ static int dt_path_events_mouse_scrolled(struct dt_iop_module_t *module, float p
           float masks_border = dt_conf_get_float("plugins/darkroom/spots/path_border");
           masks_border = MAX(0.0005f, MIN(masks_border * amount, 0.5f));
           dt_conf_set_float("plugins/darkroom/spots/path_border", masks_border);
+          dt_toast_log(_("feather size: %3.2f%%"), masks_border*100.0f);
         }
         else
         {
           float masks_border = dt_conf_get_float("plugins/darkroom/masks/path/border");
           masks_border = MAX(0.0005f, MIN(masks_border * amount, 0.5f));
           dt_conf_set_float("plugins/darkroom/masks/path/border", masks_border);
+          dt_toast_log(_("feather size: %3.2f%%"), masks_border*100.0f);
         }
       }
       else if(gui->edit_mode == DT_MASKS_EDIT_FULL)
@@ -1170,6 +1173,11 @@ static int dt_path_events_button_pressed(struct dt_iop_module_t *module, float p
       {
         dt_masks_point_path_t *point
             = (dt_masks_point_path_t *)g_list_nth_data(form->points, gui->point_edited);
+        if(point == NULL)
+        {
+          gui->point_selected = -1;
+          return 1;
+        }
         if(point->state != DT_MASKS_POINT_STATE_NORMAL)
         {
           point->state = DT_MASKS_POINT_STATE_NORMAL;
@@ -1301,6 +1309,11 @@ static int dt_path_events_button_pressed(struct dt_iop_module_t *module, float p
     }
     dt_masks_point_path_t *point
         = (dt_masks_point_path_t *)g_list_nth_data(form->points, gui->point_selected);
+    if(point == NULL)
+    {
+      gui->point_selected = -1;
+      return 1;
+    }
     form->points = g_list_remove(form->points, point);
     free(point);
     // form->points = g_list_delete_link(form->points, g_list_nth(form->points, gui->point_selected));
@@ -1322,7 +1335,7 @@ static int dt_path_events_button_pressed(struct dt_iop_module_t *module, float p
   {
     dt_masks_point_path_t *point
         = (dt_masks_point_path_t *)g_list_nth_data(form->points, gui->feather_selected);
-    if(point->state != DT_MASKS_POINT_STATE_NORMAL)
+    if(point != NULL && point->state != DT_MASKS_POINT_STATE_NORMAL)
     {
       point->state = DT_MASKS_POINT_STATE_NORMAL;
       _path_init_ctrl_points(form);
@@ -2625,7 +2638,7 @@ static int dt_path_get_mask_roi(dt_iop_module_t *module, dt_dev_pixelpipe_iop_t 
   start = start2 = dt_get_wtime();
 
   // empty the output buffer
-  memset(buffer, 0, sizeof(float) * width * height);
+  dt_iop_image_fill(buffer, 0.0f, width, height, 1);
 
   guint nb_corner = g_list_length(form->points);
 

@@ -71,17 +71,6 @@ struct patch_t
 };
 typedef struct patch_t patch_t;
 
-// some shorthand to make code more legible
-// if we have OpenMP simd enabled, declare a vectorizable for loop;
-// otherwise, just leave it a plain for()
-#if defined(_OPENMP) && defined(OPENMP_SIMD_)
-#define SIMD_FOR \
-  _Pragma("omp simd") \
-  for
-#else
-#define SIMD_FOR for
-#endif
-
 // avoid cluttering the scalar codepath with #ifdefs by hiding the dependency on SSE2
 #ifndef __SSE2__
 # define _mm_prefetch(where,hint)
@@ -159,10 +148,13 @@ static float compute_center_pixel_norm(const float center_weight, const int radi
 // compute the channel-normed squared difference between two pixels
 static inline float pixel_difference(const float* const pix1, const float* pix2, const float norm[4])
 {
-  float dif1 = pix1[0] - pix2[0];
-  float dif2 = pix1[1] - pix2[1];
-  float dif3 = pix1[2] - pix2[2];
-  return (dif1 * dif1 * norm[0]) + (dif2 * dif2 * norm[1]) + (dif3 * dif3 * norm[2]);
+  float DT_ALIGNED_PIXEL sum[4] = { 0.f, 0.f, 0.f, 0.f };
+  for_each_channel(i, aligned(sum:16))
+  {
+    const float diff = pix1[i] - pix2[i];
+    sum[i] = diff * diff * norm[i];
+  }
+  return sum[0] + sum[1] + sum[2];
 }
 
 #if defined(__SSE2__)
@@ -384,13 +376,13 @@ void nlmeans_denoise(const float *const inbuf, float *const outbuf,
 {
   // define the factors for applying blending between the original image and the denoised version
   // if running in RGB space, 'luma' should equal 'chroma'
-  const float weight[4] = { params->luma, params->chroma, params->chroma, 1.0f };
-  const float invert[4] = { 1.0f - params->luma, 1.0f - params->chroma, 1.0f - params->chroma, 0.0f };
+  const float DT_ALIGNED_PIXEL weight[4] = { params->luma, params->chroma, params->chroma, 1.0f };
+  const float DT_ALIGNED_PIXEL invert[4] = { 1.0f - params->luma, 1.0f - params->chroma, 1.0f - params->chroma, 0.0f };
   const bool skip_blend = (params->luma == 1.0 && params->chroma == 1.0);
 
   // define the normalization to convert central pixel differences into central pixel weights
   const float cp_norm = compute_center_pixel_norm(params->center_weight,params->patch_radius);
-  const float center_norm[4] = { cp_norm, cp_norm, cp_norm, 1.0f };
+  const float DT_ALIGNED_PIXEL center_norm[4] = { cp_norm, cp_norm, cp_norm, 1.0f };
 
   // define the patches to be compared when denoising a pixel
   const size_t stride = 4 * roi_in->width;
@@ -475,8 +467,8 @@ void nlmeans_denoise(const float *const inbuf, float *const outbuf,
               distortion += (col_sums[col+radius] - col_sums[col-radius-1]);
               const float wt = gh(distortion * sharpness);
               const float *const inpx = in+4*col;
-              const float pixel[4] = { inpx[offset],  inpx[offset+1], inpx[offset+2], 1.0f };
-              SIMD_FOR (size_t c = 0; c < 4; c++)
+              const float DT_ALIGNED_PIXEL pixel[4] = { inpx[offset],  inpx[offset+1], inpx[offset+2], 1.0f };
+              for_four_channels(c,aligned(pixel,out:16))
               {
                 out[4*col+c] += pixel[c] * wt;
               }
@@ -493,8 +485,8 @@ void nlmeans_denoise(const float *const inbuf, float *const outbuf,
                                            / (1.0f + params->center_weight);
               const float wt = gh(fmaxf(0.0f, dissimilarity * sharpness - 2.0f));
               const float *const inpx = in + 4*col;
-              const float pixel[4] = { inpx[offset],  inpx[offset+1], inpx[offset+2], 1.0f };
-              SIMD_FOR (size_t c = 0; c < 4; c++)
+              const float DT_ALIGNED_PIXEL pixel[4] = { inpx[offset],  inpx[offset+1], inpx[offset+2], 1.0f };
+              for_four_channels(c,aligned(pixel,out:16))
               {
                 out[4*col+c] += pixel[c] * wt;
               }
@@ -571,7 +563,7 @@ void nlmeans_denoise(const float *const inbuf, float *const outbuf,
           float *const out = outbuf + 4 * row * roi_out->width;
           for (int col = chunk_left; col < chunk_right; col++)
           {
-            SIMD_FOR(size_t c = 0; c < 4; c++)
+            for_each_channel(c,aligned(out:16))
             {
               out[4*col+c] /= out[4*col+3];
             }
@@ -587,7 +579,7 @@ void nlmeans_denoise(const float *const inbuf, float *const outbuf,
           float *out = outbuf + row * 4 * roi_out->width;
           for (int col = chunk_left; col < chunk_right; col++)
           {
-            SIMD_FOR(size_t c = 0; c < 4; c++)
+            for_each_channel(c,aligned(in,out,weight,invert:16))
             {
               out[4*col+c] = (in[4*col+c] * invert[c]) + (out[4*col+c] / out[4*col+3] * weight[c]);
             }
@@ -616,7 +608,7 @@ void nlmeans_denoise_sse2(const float *const inbuf, float *const outbuf,
 
   // define the normalization to convert central pixel differences into central pixel weights
   const float cp_norm = compute_center_pixel_norm(params->center_weight,params->patch_radius);
-  const float center_norm[4] = { cp_norm, cp_norm, cp_norm, 1.0f };
+  const float DT_ALIGNED_PIXEL center_norm[4] = { cp_norm, cp_norm, cp_norm, 1.0f };
 
   // define the patches to be compared when denoising a pixel
   const size_t stride = 4 * roi_in->width;

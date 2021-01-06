@@ -1073,7 +1073,8 @@ static gboolean _rename_module_resize(GtkWidget *entry, GdkEventKey *event, dt_i
 
 static void _iop_gui_rename_module(dt_iop_module_t *module)
 {
-  if(gtk_container_get_focus_child(GTK_CONTAINER(module->header))) return;
+  GtkWidget *focused = gtk_container_get_focus_child(GTK_CONTAINER(module->header));
+  if(focused && GTK_IS_ENTRY(focused)) return;
 
   GtkWidget *entry = gtk_entry_new();
 
@@ -2121,6 +2122,7 @@ static void popup_callback(GtkButton *button, dt_iop_module_t *module)
 void dt_iop_request_focus(dt_iop_module_t *module)
 {
   if(darktable.gui->reset || (darktable.develop->gui_module == module)) return;
+  if(module && dt_dev_modulegroups_get(darktable.develop) == DT_MODULEGROUP_BASICS) return;
 
   if(darktable.develop->gui_module != module) darktable.develop->focus_hash++;
 
@@ -2448,7 +2450,8 @@ static void header_size_callback(GtkWidget *widget, GdkRectangle *allocation, Gt
 gboolean dt_iop_show_hide_header_buttons(GtkWidget *header, GdkEventCrossing *event, gboolean show_buttons, gboolean always_hide)
 {
   // check if Entry widget for module name edit exists
-  if(gtk_container_get_focus_child(GTK_CONTAINER(header))) return TRUE;
+  GtkWidget *focused = gtk_container_get_focus_child(GTK_CONTAINER(header));
+  if(focused && GTK_IS_ENTRY(focused)) return TRUE;
 
   if(event && (darktable.develop->darkroom_skip_mouse_events ||
      event->detail == GDK_NOTIFY_INFERIOR ||
