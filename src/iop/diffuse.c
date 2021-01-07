@@ -536,7 +536,7 @@ static inline void heat_PDE_inpanting(const float *const restrict input,
           // Compute the zeroth-order term
           if(compute_zero)
           {
-            TV[c][2] = expf(-fabsf(center[c]) / regularization_zeroth);
+            TV[c][2] = fabsf(center[c]) + regularization_zeroth;
           }
 
           if(compute_structure || compute_base)
@@ -561,7 +561,7 @@ static inline void heat_PDE_inpanting(const float *const restrict input,
             if(compute_structure)
             {
               const float c2 = expf(-tv / edges_structure);
-              TV[c][1] = expf(-tv / regularization_structure);
+              TV[c][1] = tv + regularization_structure;
 
               const float a11 = cos_theta2 + c2 * sin_theta2;
               const float a12 = (c2 - 1.0f) * cos_theta * sin_theta;
@@ -586,7 +586,7 @@ static inline void heat_PDE_inpanting(const float *const restrict input,
             if(compute_base)
             {
               const float c2 = expf(-tv / edges_base);
-              TV[c][3] = expf(-tv / regularization_base);
+              TV[c][3] = tv + regularization_base;
 
               const float a11 = cos_theta2 + c2 * sin_theta2;
               const float a12 = (c2 - 1.0f) * cos_theta * sin_theta;
@@ -617,7 +617,7 @@ static inline void heat_PDE_inpanting(const float *const restrict input,
             // Find the dampening factor
             const float tv = hypotf(grad_x, grad_y);
             const float c2 = expf(-tv / edges_texture);
-            TV[c][0] = expf(-tv / regularization_texture);
+            TV[c][0] = tv + regularization_texture;
 
             // Find the direction of the gradient
             const float theta = atan2f(grad_y, grad_x);
@@ -658,7 +658,7 @@ static inline void heat_PDE_inpanting(const float *const restrict input,
         #pragma omp simd aligned(TV, TV_RGB, ABCD: 64)
         #endif
         for(size_t k = 0; k < 4; k++)
-          TV_RGB[k] = ABCD[k] * fminf(fminf(TV[0][k], TV[1][k]), TV[2][k]);
+          TV_RGB[k] = ABCD[k] / fmaxf(fmaxf(TV[0][k], TV[1][k]), TV[2][k]);
 
         // Convolve anisotropic filters at current pixel for directional derivatives
         float DT_ALIGNED_ARRAY derivatives[4][4];
@@ -723,22 +723,23 @@ static inline void heat_PDE_inpanting(const float *const restrict input,
 static float diffusion_scale_factor(const float current_radius, const float final_radius, const float zoom, const dt_iop_diffuse_model_t model)
 {
   float factor;
+  const float scaled_radius = final_radius * zoom;
 
   if(model == DT_DIFFUSE_GAUSSIAN)
   {
-    factor = expf(-current_radius / final_radius);
+    factor = expf(-current_radius / scaled_radius);
   }
   else if(model == DT_DIFFUSE_CONSTANT)
   {
-    factor = (current_radius <= final_radius) ? 1.f : 0.f;
+    factor = (current_radius <= scaled_radius) ? 1.f : 0.f;
   }
   else if(model == DT_DIFFUSE_LINEAR)
   {
-    factor = fmaxf(1.f - current_radius / final_radius, 0.f);
+    factor = fmaxf(1.f - current_radius / scaled_radius, 0.f);
   }
   else if(model == DT_DIFFUSE_QUADRATIC)
   {
-    factor = fmaxf(sqrtf(1.f - current_radius / final_radius), 0.f);
+    factor = fmaxf(sqrtf(1.f - current_radius / scaled_radius), 0.f);
   }
   else
   {
@@ -773,12 +774,12 @@ static inline gint reconstruct_highlights(const float *const restrict in, float 
   float zeroth = data->zeroth;
   float base = data->base;
   float edges_texture = expf(-data->edges_texture);
-  float regularization_texture = expf(-data->regularization_texture);
   float edges_structure = expf(-data->edges_structure);
   float edges_base = expf(-data->edges_base);
-  float regularization_structure = expf(-data->regularization_structure);
-  float regularization_zeroth = expf(-data->regularization_zeroth);
-  float regularization_base = expf(-data->regularization_base);
+  float regularization_texture = expf(data->regularization_texture);
+  float regularization_structure = expf(data->regularization_structure);
+  float regularization_zeroth = expf(data->regularization_zeroth);
+  float regularization_base = expf(data->regularization_base);
 
   // wavelets scales buffers
   float *const restrict LF_even = dt_alloc_align_float(roi_out->width * roi_out->height * ch); // low-frequencies RGB
@@ -941,7 +942,7 @@ void process(dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const void *c
     dt_gaussian_free(g);
 
     // add noise and restore valid parts where mask = FALSE
-    const float noise = 0.2 / scale;
+    const float noise = 0.2;
 
     #ifdef _OPENMP
     #pragma omp parallel for default(none) \
