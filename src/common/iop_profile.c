@@ -446,7 +446,7 @@ static inline void _transform_matrix_rgb(const float *const restrict image_in,
   // RGB -> XYZ -> RGB are 2 matrices products, they can be premultiplied globally ahead
   // and put in a new matrix. then we spare one matrix product per pixel.
   float matrix[9] DT_ALIGNED_ARRAY;
-  mat3mul(matrix, profile_info_from->matrix_in, profile_info_to->matrix_out);
+  mat3mul(matrix, profile_info_to->matrix_out, profile_info_from->matrix_in);
 
   if(profile_info_from->nonlinearlut || profile_info_to->nonlinearlut)
   {
@@ -857,7 +857,7 @@ dt_iop_order_iccprofile_info_t *dt_ioppr_get_histogram_profile_info(struct dt_de
   const char *histogram_profile_filename;
   dt_ioppr_get_histogram_profile_type(&histogram_profile_type, &histogram_profile_filename);
   return dt_ioppr_add_profile_info_to_list(dev, histogram_profile_type, histogram_profile_filename,
-                                           DT_INTENT_PERCEPTUAL);
+                                           DT_INTENT_RELATIVE_COLORIMETRIC);
 }
 
 dt_iop_order_iccprofile_info_t *dt_ioppr_get_pipe_work_profile_info(struct dt_dev_pixelpipe_t *pipe)
@@ -1502,7 +1502,7 @@ int dt_ioppr_transform_image_colorspace_rgb_cl(const int devid, cl_mem dev_img_i
     lut_to_cl = dt_ioppr_get_trc_cl(profile_info_to);
 
     float matrix[9] DT_ALIGNED_PIXEL;
-    mat3mul(matrix, profile_info_from->matrix_in, profile_info_to->matrix_out);
+    mat3mul(matrix, profile_info_to->matrix_out, profile_info_from->matrix_in);
 
     if(in_place)
     {

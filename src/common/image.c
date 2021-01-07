@@ -581,8 +581,11 @@ gboolean dt_image_get_final_size(const int32_t imgid, int *width, int *height)
   // the orientation for this camera is not read correctly from exiv2, so we need
   // to go the full path (as the thumbnail will be flipped the wrong way round)
   const int incompatible = !strncmp(img.exif_maker, "Phase One", 9);
-  if(!img.verified_size && !dt_image_altered(imgid) && !dt_conf_get_bool("never_use_embedded_thumb")
-     && !incompatible)
+  char *min = dt_conf_get_string("plugins/lighttable/thumbnail_raw_min_level");
+  const gboolean use_raw = g_strcmp0(min, "never");
+  g_free(min);
+
+  if(!img.verified_size && !dt_image_altered(imgid) && !use_raw && !incompatible)
   {
     // we want to be sure to have the real image size.
     // some raw files need a pass via rawspeed to get it.
@@ -1488,6 +1491,8 @@ static uint32_t _image_import_internal(const int32_t film_id, const char *filena
 
   // read dttags and exif for database queries!
   (void)dt_exif_read(img, normalized_filename);
+  if(dt_conf_get_bool("ui_last/ignore_exif_rating"))
+    img->flags = flags;
   char dtfilename[PATH_MAX] = { 0 };
   g_strlcpy(dtfilename, normalized_filename, sizeof(dtfilename));
   // dt_image_path_append_version(id, dtfilename, sizeof(dtfilename));
