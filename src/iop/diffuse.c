@@ -52,6 +52,14 @@ typedef enum dt_iop_diffuse_model_t
 } dt_iop_diffuse_model_t;
 
 
+typedef enum dt_iop_diffuse_bokeh_t
+{
+  DT_DIFFUSE_BOKEH_NONE = 0,    // $DESCRIPTION: "ignore blur"
+  DT_DIFFUSE_BOKEH_EXCLUDE = 1, // $DESCRIPTION: "exclude all bokeh regions"
+  DT_DIFFUSE_BOKEH_INCLUDE = 2  // $DESCRIPTION: "include only bokeh regions"
+} dt_iop_diffuse_bokeh_t;
+
+
 typedef struct dt_iop_diffuse_params_t
 {
   // global parameters
@@ -62,7 +70,7 @@ typedef struct dt_iop_diffuse_params_t
 
   // masking
   float threshold;                // $MIN: 0.  $MAX: 8.   $DEFAULT: 0. $DESCRIPTION: "luminance masking threshold"
-  gboolean respect_bokeh;         // $DEFAULT: 0 $DESCRIPTION: "avoid lens bokeh"
+  dt_iop_diffuse_bokeh_t respect_bokeh; // $DEFAULT: 0 $DESCRIPTION: "lens blur"
 
   // first order derivative, anisotropic, aka first order integral of wavelets details scales
   float base;                // $MIN: -1. $MAX: 1.   $DEFAULT: 0. $DESCRIPTION: "strength"
@@ -433,7 +441,7 @@ static inline void heat_PDE_inpanting(const float *const restrict input,
                                       const float edges_structure, const float regularization_structure,
                                       const float regularization_zeroth,
                                       const float edges_base, const float regularization_base,
-                                      const int respect_bokeh, const int radius)
+                                      const dt_iop_diffuse_bokeh_t respect_bokeh, const int radius)
 {
   // Simultaneous inpainting for image structure and texture using anisotropic heat transfer model
   // https://www.researchgate.net/publication/220663968
@@ -448,7 +456,7 @@ static inline void heat_PDE_inpanting(const float *const restrict input,
   const int compute_structure = (structure != 0.f);
   const int compute_texture = (texture != 0.f);
 
-  const float bokeh_factor = (float)radius / (float)mult;
+  const float bokeh_factor = sqf((float)radius / (float)mult);
 
   const int has_mask = (mask != NULL);
 
@@ -650,7 +658,9 @@ static inline void heat_PDE_inpanting(const float *const restrict input,
 
         // Get the difference of gaussians as a metric of bokeh and a generalized gaussian to find the fall-of
         // This assumes we diffuse a wavelet high-pass details layer that is roughly equivalent to a second order derivative
-        const float bokeh = (respect_bokeh) ? 1.f - expf(- bokeh_factor * sqrtf(sqf(center[0]) + sqf(center[1]) + sqf(center[2]))) : 1.f;
+        const float bokeh = (respect_bokeh == DT_DIFFUSE_BOKEH_EXCLUDE) ? 1.f - expf(- bokeh_factor * (sqf(center[0]) + sqf(center[1]) + sqf(center[2])))
+                              : (respect_bokeh == DT_DIFFUSE_BOKEH_INCLUDE) ? expf(- bokeh_factor * (sqf(center[0]) + sqf(center[1]) + sqf(center[2])))
+                                : 1.f;
 
         // Use a collaborative regularization
         float DT_ALIGNED_ARRAY TV_RGB[4];
@@ -1000,7 +1010,7 @@ void gui_update(struct dt_iop_module_t *self)
   dt_bauhaus_slider_set_soft(g->update, p->update);
   dt_bauhaus_slider_set_soft(g->threshold, p->threshold);
   dt_bauhaus_combobox_set(g->model, p->model);
-  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g->respect_bokeh), p->respect_bokeh);
+  dt_bauhaus_combobox_set(g->respect_bokeh, p->respect_bokeh);
 }
 
 void gui_init(struct dt_iop_module_t *self)
@@ -1112,7 +1122,7 @@ void gui_init(struct dt_iop_module_t *self)
                                               "any higher value will exclude pixels whith luminance lower than the threshold.\n"
                                               "this can be used to inpaint highlights."));
 
-  g->respect_bokeh = dt_bauhaus_toggle_from_params(self, "respect_bokeh");
+  g->respect_bokeh = dt_bauhaus_combobox_from_params(self, "respect_bokeh");
   gtk_widget_set_tooltip_text(g->respect_bokeh, _("exclude the blurry area from the module.\n"
                                                   "this is useful if you plan on sharpening but want to preserve the bokeh.\n"));
 }
