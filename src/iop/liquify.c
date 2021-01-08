@@ -2301,8 +2301,7 @@ static dt_liquify_hit_t _hit_paths(dt_iop_module_t *module,
           }
         }
       }
-
-      if(layer == DT_LIQUIFY_LAYER_CENTERPOINT)
+      else if(layer == DT_LIQUIFY_LAYER_CENTERPOINT)
       {
         if(data->header.type == DT_LIQUIFY_PATH_MOVE_TO_V1
             || data->header.type == DT_LIQUIFY_PATH_LINE_TO_V1
@@ -2310,6 +2309,23 @@ static dt_liquify_hit_t _hit_paths(dt_iop_module_t *module,
         {
           CHECK_HIT_PT(point);
         }
+      }
+      else if(layer == DT_LIQUIFY_LAYER_RADIUSPOINT)
+      {
+        CHECK_HIT_PT(warp->radius);
+      }
+      else if(layer == DT_LIQUIFY_LAYER_HARDNESSPOINT1)
+      {
+        CHECK_HIT_PT(cmix(point, warp->radius, warp->control1));
+      }
+      else if(layer == DT_LIQUIFY_LAYER_HARDNESSPOINT2)
+      {
+        CHECK_HIT_PT(cmix(point, warp->radius, warp->control2));
+      }
+      else if(layer == DT_LIQUIFY_LAYER_STRENGTHPOINT)
+      {
+        const float complex p = warp->point - warp->strength;
+        CHECK_HIT_PT(warp->strength + 5.0f * (p / cabsf(p)));
       }
 
       if(data->header.type == DT_LIQUIFY_PATH_CURVE_TO_V1)
@@ -2325,30 +2341,10 @@ static dt_liquify_hit_t _hit_paths(dt_iop_module_t *module,
           CHECK_HIT_PT(data->node.ctrl2);
         }
       }
-
-      if(layer == DT_LIQUIFY_LAYER_RADIUSPOINT)
-      {
-        CHECK_HIT_PT(warp->radius);
-      }
-
-      if(layer == DT_LIQUIFY_LAYER_HARDNESSPOINT1)
-      {
-        CHECK_HIT_PT(cmix(point, warp->radius, warp->control1));
-      }
-
-      if(layer == DT_LIQUIFY_LAYER_HARDNESSPOINT2)
-      {
-        CHECK_HIT_PT(cmix(point, warp->radius, warp->control2));
-      }
-
-      if(layer == DT_LIQUIFY_LAYER_STRENGTHPOINT)
-      {
-        CHECK_HIT_PT(warp->strength);
-      }
     }
   }
 
-  if(distance < 15)
+  if(distance < DT_PIXEL_APPLY_DPI(15))
     return hit;
   else
     return NOWHERE;
@@ -2380,9 +2376,9 @@ static void draw_paths(struct dt_iop_module_t *module, cairo_t *cr, const float 
   g_list_free(layers);
 }
 
-static dt_liquify_hit_t hit_test_paths(struct dt_iop_module_t *module,
-                                       dt_iop_liquify_params_t *params,
-                                       float complex pt)
+static dt_liquify_hit_t _hit_test_paths(struct dt_iop_module_t *module,
+                                        dt_iop_liquify_params_t *params,
+                                        float complex pt)
 {
   dt_liquify_hit_t hit = NOWHERE;
   GList *layers = NULL;
@@ -2845,7 +2841,7 @@ int mouse_moved(struct dt_iop_module_t *module,
 
   if(!is_dragging(g))
   {
-    dt_liquify_hit_t hit = hit_test_paths(module, &g->params, pt);
+    dt_liquify_hit_t hit = _hit_test_paths(module, &g->params, pt);
     dt_liquify_path_data_t *last_hovered = find_hovered(&g->params);
     if(hit.elem != last_hovered
        || (last_hovered && hit.elem
@@ -3113,7 +3109,7 @@ int button_pressed(struct dt_iop_module_t *module,
 
   if(!is_dragging(g))
     // while dragging you would always hit the dragged thing
-    g->last_hit = hit_test_paths(module, &g->params, pt);
+    g->last_hit = _hit_test_paths(module, &g->params, pt);
 
   if(which == 2) goto done;
 
