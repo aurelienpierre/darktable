@@ -2216,10 +2216,10 @@ static void casteljau(const float complex *p0, float complex *p1, float complex 
     hit.elem = data;                    \
   }
 
-static dt_liquify_hit_t _draw_paths_hit(dt_iop_module_t *module,
-                                        dt_iop_liquify_params_t *p,
-                                        GList *layers,
-                                        const float complex *pt)
+static dt_liquify_hit_t _hit_paths(dt_iop_module_t *module,
+                                   dt_iop_liquify_params_t *p,
+                                   GList *layers,
+                                   const float complex *pt)
 {
   dt_liquify_hit_t hit = NOWHERE;
 
@@ -2394,7 +2394,7 @@ static dt_liquify_hit_t hit_test_paths(struct dt_iop_module_t *module,
       layers = g_list_append(layers, GINT_TO_POINTER(layer));
   }
 
-  hit = _draw_paths_hit(module, params, layers, &pt);
+  hit = _hit_paths(module, params, layers, &pt);
   g_list_free(layers);
   return hit;
 }
