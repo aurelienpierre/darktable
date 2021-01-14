@@ -678,10 +678,6 @@ kernel void wavelets_reconstruct(read_only image2d_t HF, read_only image2d_t LF,
   const float4 LF_c = read_imagef(LF, sampleri, (int2)(x, y));
   const float4 TT_c = read_imagef(texture, sampleri, (int2)(x, y));
 
-  const float grey_texture = fmaxabsf(fmaxabsf(TT_c.x, TT_c.y), TT_c.z);
-  const float grey_details = fmaxabsf(fmaxabsf(HF_c.x, HF_c.y), HF_c.z);
-  float grey_HF = (gamma_comp * grey_details + gamma * grey_texture);
-
   float4 details;
   float4 residual;
 
@@ -689,15 +685,21 @@ kernel void wavelets_reconstruct(read_only image2d_t HF, read_only image2d_t LF,
   {
     case(DT_FILMIC_RECONSTRUCT_RGB):
     {
-      grey_HF *= beta_comp;
+      const float grey_texture = fmaxabsf(fmaxabsf(TT_c.x, TT_c.y), TT_c.z);
+      const float grey_details = (HF_c.x + HF_c.y + HF_c.z) / 3.f;
+      const float grey_HF = beta_comp * (gamma_comp * grey_details + gamma * grey_texture);
       const float grey_residual = beta_comp * (LF_c.x + LF_c.y + LF_c.z) / 3.f;
-      details = (gamma_comp * HF_c + gamma * TT_c) * beta;
+
+      details = (gamma_comp * HF_c + gamma * TT_c) * beta + grey_HF;
       residual = (s == scales - 1) ? grey_residual + LF_c * beta : (float4)0.f;
       break;
     }
     case(DT_FILMIC_RECONSTRUCT_RATIOS):
     {
-      const float grey_residual = fmax(fmax(LF_c.x, LF_c.y), LF_c.z);
+      const float grey_texture = fmaxabsf(fmaxabsf(TT_c.x, TT_c.y), TT_c.z);
+      const float grey_details = (HF_c.x + HF_c.y + HF_c.z) / 3.f;
+      const float grey_HF = (gamma_comp * grey_details + gamma * grey_texture);
+
       details = 0.5f * ((gamma_comp * HF_c + gamma * TT_c) + grey_HF);
       residual = (s == scales - 1) ? LF_c : (float4)0.f;
       break;

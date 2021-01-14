@@ -905,11 +905,11 @@ inline static void wavelets_reconstruct_RGB(const float *const restrict HF, cons
     // synthesize the max of all RGB channels texture as a flat texture term for the whole pixel
     // this is useful if only 1 or 2 channels are clipped, so we transfer the valid/sharpest texture on the other
     // channels
-    const float grey_texture = fmaxabsf(fmaxabsf(TT_c[0], TT_c[1]), TT_c[2]);;
+    const float grey_texture = fmaxabsf(fmaxabsf(TT_c[0], TT_c[1]), TT_c[2]);
 
     // synthesize the max of all interpolated/inpainted RGB channels as a flat details term for the whole pixel
     // this is smoother than grey_texture and will fill holes smoothly in details layers if grey_texture ~= 0.f
-    const float grey_details = fmaxabsf(fmaxabsf(HF_c[0], HF_c[1]), HF_c[2]);
+    const float grey_details = (HF_c[0] + HF_c[1] + HF_c[2]) / 3.f;
 
     // synthesize both terms with weighting
     // when beta_comp ~= 1.0, we force the reconstruction to be achromatic, which may help with gamut issues or
@@ -982,7 +982,7 @@ inline static void wavelets_reconstruct_ratios(const float *const restrict HF, c
 
     // synthesize the max of all interpolated/inpainted RGB channels as a flat details term for the whole pixel
     // this is smoother than grey_texture and will fill holes smoothly in details layers if grey_texture ~= 0.f
-    const float grey_details = fmaxabsf(fmaxabsf(HF_c[0], HF_c[1]), HF_c[2]);
+    const float grey_details = (HF_c[0] + HF_c[1] + HF_c[2]) / 3.f;
 
     // synthesize both terms with weighting
     // when beta_comp ~= 1.0, we force the reconstruction to be achromatic, which may help with gamut issues or
