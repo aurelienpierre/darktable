@@ -275,8 +275,6 @@ typedef struct
   dt_liquify_path_data_t *temp;    ///< Points to the element under construction or NULL.
   dt_liquify_status_enum_t status; ///< Various flags.
 
-  cairo_t *fake_cr;     ///< A fake cairo context for hit testing and coordinate transform.
-
   GtkLabel *label;
   GtkToggleButton *btn_point_tool, *btn_line_tool, *btn_curve_tool, *btn_node_tool;
 
@@ -1841,7 +1839,15 @@ static void _draw_paths(dt_iop_module_t *module,
 
   cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
 
-  GList *interpolated = is_dragging(g) ? NULL : interpolate_paths(p);
+  // do not display any iterpolated items as slow when:
+  //   - we are dragging (pan)
+  //   - the button one is pressed
+  //   - exception for DT_LIQUIFY_LAYER_STRENGTHPOINT where we want to see the
+  //     interpolated strength lines.
+  GList *interpolated = (is_dragging(g) || g->last_button1_pressed_pos != -1)
+    && (g->last_hit.layer != DT_LIQUIFY_LAYER_STRENGTHPOINT)
+    ? NULL
+    : interpolate_paths(p);
 
   for(GList *l = layers; l != NULL; l = l->next)
   {
@@ -2325,7 +2331,7 @@ static dt_liquify_hit_t _hit_paths(dt_iop_module_t *module,
       else if(layer == DT_LIQUIFY_LAYER_STRENGTHPOINT)
       {
         const float complex p = warp->point - warp->strength;
-        CHECK_HIT_PT(warp->strength + 5.0f * (p / cabsf(p)));
+        CHECK_HIT_PT(warp->strength +  (float)DT_PIXEL_APPLY_DPI(5) * (p / cabsf(p)));
       }
 
       if(data->header.type == DT_LIQUIFY_PATH_CURVE_TO_V1)
@@ -2825,7 +2831,7 @@ int mouse_moved(struct dt_iop_module_t *module,
                  int which)
 {
   dt_iop_liquify_gui_data_t *g = (dt_iop_liquify_gui_data_t *) module->gui_data;
-  int handled = g->last_hit.elem ? 1 : 0;
+  gboolean handled = FALSE;
   float complex pt = 0.0f;
   float scale = 0.0f;
 
@@ -2834,7 +2840,6 @@ int mouse_moved(struct dt_iop_module_t *module,
   dt_iop_gui_enter_critical_section(module);
 
   g->last_mouse_pos = pt;
-  const int dragged = detect_drag(g, scale, pt);
 
   // Don't hit test while dragging, you'd only hit the dragged thing
   // anyway.
@@ -2853,18 +2858,22 @@ int mouse_moved(struct dt_iop_module_t *module,
         last_hovered->header.hovered = 0;
       // change in hover display
       dt_control_hinter_message(darktable.control, dt_liquify_layers[hit.layer].hint);
-      handled = 1;
+      handled = TRUE;
+      goto done;
+    }
+
+    const gboolean dragged = detect_drag(g, scale, pt);
+
+    if(dragged && g->last_hit.elem)
+    {
+      // start dragging
+      start_drag(g, g->last_hit.layer, g->last_hit.elem);
+      // nothing more to do, we will refresh on the next call anyway
+      // this makes the initial move of a node a bit more fluid.
       goto done;
     }
   }
-
-  if(dragged && !is_dragging(g) && g->last_hit.elem)
-  {
-    // start dragging
-    start_drag(g, g->last_hit.layer, g->last_hit.elem);
-  }
-
-  if(is_dragging(g))
+  else // we are dragging
   {
     dt_liquify_path_data_t *d = g->dragging.elem;
     dt_liquify_path_data_t *n = node_next(&g->params, d);
@@ -2971,14 +2980,14 @@ int mouse_moved(struct dt_iop_module_t *module,
        default:
          break;
     }
-    handled = 1;
+    handled = TRUE;
   }
 
 done:
   dt_iop_gui_leave_critical_section(module);
   if(handled)
   {
-    sync_pipe(module, handled == 2);
+    sync_pipe(module, FALSE);
   }
   return handled;
 }
@@ -3275,11 +3284,6 @@ int button_released(struct dt_iop_module_t *module,
       const float radius = cabsf(g->temp->warp.radius - g->temp->warp.point);
       g->temp = alloc_curve_to(module, pt);
       if(!g->temp) goto done;
-      // user dragged, make it a symmetrical node
-      if(dragged)
-      {
-        g->temp->header.node_type = DT_LIQUIFY_NODE_TYPE_SYMMETRICAL;
-      }
       g->temp->warp.radius = pt + radius;
       g->temp->warp.strength = pt + strength;
       // links
@@ -3582,7 +3586,6 @@ void gui_init(dt_iop_module_t *self)
 
   // A dummy surface for calculations only, no drawing.
   cairo_surface_t *cs = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
-  g->fake_cr = cairo_create(cs);
   cairo_surface_destroy(cs);
 
   g->dragging = NOWHERE;
@@ -3648,10 +3651,6 @@ void gui_reset(dt_iop_module_t *self)
 
 void gui_cleanup(dt_iop_module_t *self)
 {
-  dt_iop_liquify_gui_data_t *g = (dt_iop_liquify_gui_data_t *) self->gui_data;
-
-  cairo_destroy(g->fake_cr);
-
   IOP_GUI_FREE;
 }
 

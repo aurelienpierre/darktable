@@ -1969,10 +1969,6 @@ void gui_init(struct dt_iop_module_t *self)
 
   GtkBox *box_enabled = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, DT_BAUHAUS_SPACE));
 
-  self->warning_label = dt_ui_label_new("");
-  gtk_label_set_line_wrap(GTK_LABEL(self->warning_label), TRUE);
-  gtk_box_pack_start(GTK_BOX(box_enabled), self->warning_label, FALSE, FALSE, 4);
-
   g->mod_temp = NAN;
   for(int k = 0; k < 4; k++)
   {
@@ -2009,6 +2005,8 @@ void gui_init(struct dt_iop_module_t *self)
   GtkWidget *destdisp_head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, DT_BAUHAUS_SPACE);
   GtkWidget *header_evb = gtk_event_box_new();
   GtkWidget *destdisp = dt_ui_section_label_new(_("channel coefficients"));
+  context = gtk_widget_get_style_context(destdisp_head);
+  gtk_style_context_add_class(context, "section-expander");
   gtk_container_add(GTK_CONTAINER(header_evb), destdisp);
 
   g->coeffs_toggle = dtgtk_togglebutton_new(dtgtk_cairo_paint_solid_arrow, CPF_STYLE_BOX | CPF_DIRECTION_LEFT, NULL);

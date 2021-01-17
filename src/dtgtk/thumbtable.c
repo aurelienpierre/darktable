@@ -28,6 +28,7 @@
 #include "gui/accelerators.h"
 #include "gui/drag_and_drop.h"
 #include "views/view.h"
+#include "bauhaus/bauhaus.h"
 
 // specials functions for GList globals actions
 static gint _list_compare_by_imgid(gconstpointer a, gconstpointer b)
@@ -422,6 +423,18 @@ static gboolean _thumbtable_update_scrollbars(dt_thumbtable_t *table)
 
   if(table->mode == DT_THUMBTABLE_MODE_FILEMANAGER)
   {
+    // if the scrollbar is currently visible and we want to hide it
+    // we first ensure that with the width without the scrollbar, we won't need a scrollbar
+    if(gtk_widget_get_visible(darktable.gui->scrollbars.vscrollbar) && lbefore + lafter <= table->rows - 1)
+    {
+      const int nw = table->view_width + gtk_widget_get_allocated_width(darktable.gui->scrollbars.vscrollbar);
+      if((lbefore + lafter) * nw / table->thumbs_per_row >= table->view_height)
+      {
+        dt_view_set_scrollbar(darktable.view_manager->current_view, 0, 0, 0, 0, lbefore, 0, lbefore + lafter + 1,
+                              table->rows - 1);
+        return TRUE;
+      }
+    }
     // in filemanager, no horizontal bar, and vertical bar reference is 1 thumb.
     dt_view_set_scrollbar(darktable.view_manager->current_view, 0, 0, 0, 0, lbefore, 0, lbefore + lafter,
                           table->rows - 1);
@@ -509,9 +522,9 @@ static int _thumbs_load_needed(dt_thumbtable_t *table)
     {
       if(posy < table->view_height) // we don't load invisible thumbs
       {
-        dt_thumbnail_t *thumb
-            = dt_thumbnail_new(table->thumb_size, table->thumb_size, sqlite3_column_int(stmt, 1),
-                               sqlite3_column_int(stmt, 0), table->overlays, FALSE, table->show_tooltips);
+        dt_thumbnail_t *thumb = dt_thumbnail_new(table->thumb_size, table->thumb_size, sqlite3_column_int(stmt, 1),
+                                                 sqlite3_column_int(stmt, 0), table->overlays,
+                                                 DT_THUMBNAIL_CONTAINER_LIGHTTABLE, table->show_tooltips);
         if(table->mode == DT_THUMBTABLE_MODE_FILMSTRIP)
         {
           thumb->single_click = TRUE;
@@ -554,9 +567,9 @@ static int _thumbs_load_needed(dt_thumbtable_t *table)
     {
       if(posy + table->thumb_size >= 0) // we don't load invisible thumbs
       {
-        dt_thumbnail_t *thumb
-            = dt_thumbnail_new(table->thumb_size, table->thumb_size, sqlite3_column_int(stmt, 1),
-                               sqlite3_column_int(stmt, 0), table->overlays, FALSE, table->show_tooltips);
+        dt_thumbnail_t *thumb = dt_thumbnail_new(table->thumb_size, table->thumb_size, sqlite3_column_int(stmt, 1),
+                                                 sqlite3_column_int(stmt, 0), table->overlays,
+                                                 DT_THUMBNAIL_CONTAINER_LIGHTTABLE, table->show_tooltips);
         if(table->mode == DT_THUMBTABLE_MODE_FILMSTRIP)
         {
           thumb->single_click = TRUE;
@@ -1864,7 +1877,7 @@ void dt_thumbtable_full_redraw(dt_thumbtable_t *table, gboolean force)
       {
         // we create a completly new thumb
         dt_thumbnail_t *thumb = dt_thumbnail_new(table->thumb_size, table->thumb_size, nid, nrow, table->overlays,
-                                                 FALSE, table->show_tooltips);
+                                                 DT_THUMBNAIL_CONTAINER_LIGHTTABLE, table->show_tooltips);
         if(table->mode == DT_THUMBTABLE_MODE_FILMSTRIP)
         {
           thumb->single_click = TRUE;
@@ -2115,27 +2128,10 @@ static gboolean _accel_color(GtkAccelGroup *accel_group, GObject *acceleratable,
       {
         do
         {
-          const char *lb = (char *)(dt_colorlabels_to_string(GPOINTER_TO_INT(res->data)));
-          if(g_strcmp0(lb, "red") == 0)
-          {
-            result = dt_util_dstrcat(result, "<span foreground=\"#ee0000\">⬤ </span>");
-          }
-          else if(g_strcmp0(lb, "yellow") == 0)
-          {
-            result = dt_util_dstrcat(result, "<span foreground=\"#eeee00\">⬤ </span>");
-          }
-          else if(g_strcmp0(lb, "green") == 0)
-          {
-            result = dt_util_dstrcat(result, "<span foreground=\"#00ee00\">⬤ </span>");
-          }
-          else if(g_strcmp0(lb, "blue") == 0)
-          {
-            result = dt_util_dstrcat(result, "<span foreground=\"#0000ee\">⬤ </span>");
-          }
-          else if(g_strcmp0(lb, "purple") == 0)
-          {
-            result = dt_util_dstrcat(result, "<span foreground=\"#ee00ee\">⬤ </span>");
-          }
+          const GdkRGBA c = darktable.bauhaus->colorlabels[GPOINTER_TO_INT(res->data)];
+          result = dt_util_dstrcat(result,
+                                   "<span foreground='#%02x%02x%02x'>⬤ </span>",
+                                   (guint)(c.red*255), (guint)(c.green*255), (guint)(c.blue*255));
         } while((res = g_list_next(res)) != NULL);
       }
       g_list_free(res);
