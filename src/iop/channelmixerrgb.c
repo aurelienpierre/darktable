@@ -144,12 +144,12 @@ typedef struct dt_iop_channelmixer_rgb_gui_data_t
   dt_solving_strategy_t optimization;
   float safety_margin;
 
-  double homography[9*9];          // the perspective correction matrix
-  double inverse_homography[9*9];  // The inverse perspective correction matrix
-  gboolean run_profile;            // order a profiling at next pipeline recompute
-  gboolean run_validation;         // order a profile validation at next pipeline recompute
-  gboolean profile_ready;          // notify that a profile is ready to be applied
-  gboolean checker_ready;          // notify that a checker bounding box is ready to be used
+  float homography[9];          // the perspective correction matrix
+  float inverse_homography[9];  // The inverse perspective correction matrix
+  gboolean run_profile;         // order a profiling at next pipeline recompute
+  gboolean run_validation;      // order a profile validation at next pipeline recompute
+  gboolean profile_ready;       // notify that a profile is ready to be applied
+  gboolean checker_ready;       // notify that a checker bounding box is ready to be used
   float mix[3][4];
 
   GtkWidget *start_profiling;
@@ -1808,7 +1808,7 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece,
     if(find_temperature_from_raw_coeffs(&(self->dev->image_storage), custom_wb, &(x), &(y)))
     {
       // Convert illuminant from xyY to XYZ
-      float XYZ[3];
+      float XYZ[4];
       illuminant_xy_to_XYZ(x, y, XYZ);
 
       // Convert illuminant from XYZ to Bradford modified LMS
@@ -2530,7 +2530,7 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
   d->illuminant_type = p->illuminant;
 
   // Convert illuminant from xyY to XYZ
-  float XYZ[3];
+  float XYZ[4];
   illuminant_xy_to_XYZ(x, y, XYZ);
 
   // Convert illuminant from XYZ to Bradford modified LMS
