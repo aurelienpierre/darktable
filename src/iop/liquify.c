@@ -1,6 +1,6 @@
 /*
     This file is part of darktable,
-    Copyright (C) 2014-2020 darktable developers.
+    Copyright (C) 2014-2021 darktable developers.
 
     darktable is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
 #include "common/interpolation.h"
 #include "common/opencl.h"
 #include "common/math.h"
+#include "common/collection.h"
 #include "control/conf.h"
 #include "control/control.h"
 #include "develop/imageop.h"
@@ -2768,7 +2769,7 @@ void gui_focus(struct dt_iop_module_t *module, gboolean in)
 {
   if(!in)
   {
-    dt_control_hinter_message(darktable.control, "");
+    dt_collection_hint_message(darktable.collection);
     btn_make_radio_callback(NULL, NULL, module);
   }
 }
@@ -3542,15 +3543,15 @@ static gboolean btn_make_radio_callback(GtkToggleButton *btn, GdkEventButton *ev
 
     if(btn == g->btn_point_tool)
       dt_control_hinter_message
-        (darktable.control, _("click and drag to add point\nscroll to change size\n"
+        (darktable.control, _("click and drag to add point\nscroll to change size - "
                               "shift+scroll to change strength - ctrl+scroll to change direction"));
     else if(btn == g->btn_line_tool)
       dt_control_hinter_message
-        (darktable.control, _("click to add line\nscroll to change size\n"
+        (darktable.control, _("click to add line\nscroll to change size - "
                               "shift+scroll to change strength - ctrl+scroll to change direction"));
     else if(btn == g->btn_curve_tool)
       dt_control_hinter_message
-        (darktable.control, _("click to add curve\nscroll to change size\n"
+        (darktable.control, _("click to add curve\nscroll to change size - "
                               "shift+scroll to change strength - ctrl+scroll to change direction"));
     else if(btn == g->btn_node_tool)
       dt_control_hinter_message(darktable.control, _("click to edit nodes"));

@@ -198,6 +198,9 @@ int legacy_params(dt_iop_module_t *self, const void *const old_params, const int
     // Copy the common part of the params struct
     memcpy(new_params, old_params, sizeof(dt_iop_colorbalancergb_params_v1_t));
 
+    dt_iop_colorbalancergb_params_t *n = (dt_iop_colorbalancergb_params_t *)new_params;
+    n->saturation_global /= 180.f / M_PI;
+
     return 0;
   }
   return 1;
