@@ -335,15 +335,16 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
     Ych_to_gradingRGB(Ych, RGB, white_grading_RGB);
 
     /* Color balance */
-
-    // global
-    for_four_channels(c) RGB[c] = RGB[c] + global[c];
-
-    // 3 ways : shadows, highlights, midtones
     for_four_channels(c)
     {
+      // global : offset
+      RGB[c] = RGB[c] + global[c];
+
+      //  highlights, shadows : 2 slopes with masking
       RGB[c] *= beta_comp * (alpha_comp + alpha * shadows[c]) + beta * highlights[c];
       // factorization of : (RGB[c] * (1.f - alpha) + RGB[c] * d->shadows[c] * alpha) * (1.f - beta)  + RGB[c] * d->highlights[c] * beta;
+
+      // midtones : power with sign preservation
       const float sign = (RGB[c] < 0.f) ? -1.f : 1.f;
       RGB[c] = sign * powf(fabsf(RGB[c]) / d->midtones_weight, midtones[c]) * d->midtones_weight;
     }
