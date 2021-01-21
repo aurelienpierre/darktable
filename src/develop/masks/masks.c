@@ -1983,7 +1983,7 @@ void dt_masks_set_edit_mode(struct dt_iop_module_t *module, dt_masks_edit_mode_t
     dt_masks_group_ungroup(grp, form);
   }
 
-  if (bd) bd->masks_shown = value;
+  if(bd) bd->masks_shown = value;
 
   dt_masks_change_form_gui(grp);
   darktable.develop->form_gui->edit_mode = value;
@@ -1992,8 +1992,9 @@ void dt_masks_set_edit_mode(struct dt_iop_module_t *module, dt_masks_edit_mode_t
   else
     dt_dev_masks_selection_change(darktable.develop, 0, FALSE);
 
-  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(bd->masks_edit),
-                               value == DT_MASKS_EDIT_OFF ? FALSE : TRUE);
+  if(bd->masks_support)
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(bd->masks_edit),
+                                 value == DT_MASKS_EDIT_OFF ? FALSE : TRUE);
 
   dt_control_queue_redraw_center();
 }

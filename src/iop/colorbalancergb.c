@@ -307,7 +307,7 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
     float DT_ALIGNED_PIXEL Ych[4] = { 0.f };
     float DT_ALIGNED_PIXEL RGB[4] = { 0.f };
 
-    for_four_channels(c) Ych[c] = fmaxf(pix_in[c], 0.0f);
+    for(size_t c = 0; c < 4; ++c) Ych[c] = fmaxf(pix_in[c], 0.0f);
     dot_product(Ych, input_matrix, RGB);
     gradingRGB_to_Ych(RGB, Ych, white_grading_RGB);
 
@@ -338,7 +338,7 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
     Ych_to_gradingRGB(Ych, RGB, white_grading_RGB);
 
     /* Color balance */
-    for_four_channels(c)
+    for(size_t c = 0; c < 4; ++c)
     {
       // global : offset
       RGB[c] = RGB[c] + global[c];
@@ -420,7 +420,7 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
 
     Ych_to_gradingRGB(Ych, RGB, white_grading_RGB);
     dot_product(RGB, output_matrix, pix_out);
-    for_four_channels(c) pix_out[c] = fmaxf(pix_out[c], 0.f);
+    for(size_t c = 0; c < 4; ++c) pix_out[c] = fmaxf(pix_out[c], 0.f);
   }
 }
 

@@ -1857,7 +1857,8 @@ void gui_focus(struct dt_iop_module_t *self, gboolean in)
       if(grp && (grp->type & DT_MASKS_GROUP) && g_list_length(grp->points) > 0)
       {
         // got focus, show all shapes
-        if(bd->masks_shown == DT_MASKS_EDIT_OFF) dt_masks_set_edit_mode(self, DT_MASKS_EDIT_FULL);
+        if(bd->masks_shown == DT_MASKS_EDIT_OFF)
+          dt_masks_set_edit_mode(self, DT_MASKS_EDIT_FULL);
 
         rt_show_forms_for_current_scale(self);
 
@@ -2112,7 +2113,7 @@ void gui_init(dt_iop_module_t *self)
   g_signal_connect(G_OBJECT(g->wd_bar), "button-press-event", G_CALLBACK(rt_wdbar_button_press), self);
   g_signal_connect(G_OBJECT(g->wd_bar), "button-release-event", G_CALLBACK(rt_wdbar_button_release), self);
   g_signal_connect(G_OBJECT(g->wd_bar), "scroll-event", G_CALLBACK(rt_wdbar_scrolled), self);
-  gtk_widget_add_events(GTK_WIDGET(g->wd_bar), GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK
+  gtk_widget_add_events(GTK_WIDGET(g->wd_bar), GDK_POINTER_MOTION_MASK
                                                    | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK
                                                    | GDK_LEAVE_NOTIFY_MASK | GDK_SCROLL_MASK
                                                    | GDK_SMOOTH_SCROLL_MASK);
