@@ -182,7 +182,7 @@ void cleanup(dt_view_t *self)
   free(dev);
 }
 
-static cairo_status_t write_snapshot_data(void *closure, const unsigned char *data, unsigned int length)
+static cairo_status_t _write_snapshot_data(void *closure, const unsigned char *data, unsigned int length)
 {
   const int fd = GPOINTER_TO_INT(closure);
   ssize_t res = write(fd, data, length);
@@ -214,6 +214,70 @@ static cairo_filter_t _get_filtering_level(dt_develop_t *dev)
     return CAIRO_FILTER_FAST;
   else
     return darktable.gui->dr_filter_image;
+}
+
+void _display_module_trouble_message_callback(gpointer instance,
+                                              dt_iop_module_t *module,
+                                              const char *const trouble_msg,
+                                              const char *const trouble_tooltip,
+                                              const char *const stderr_message)
+{
+  GtkWidget *label_widget = NULL;
+
+  if(module && module->has_trouble && module->widget)
+  {
+    GList *children = gtk_container_get_children(GTK_CONTAINER(gtk_widget_get_parent(module->widget)));
+    label_widget = g_list_nth_data(children, 0);
+    g_list_free(children);
+    if(strcmp(gtk_widget_get_name(label_widget), "iop-plugin-warning"))
+      label_widget = NULL;
+  }
+
+  if(trouble_msg && *trouble_msg)
+  {
+    if((!module || !module->has_trouble) && (stderr_message || !module->widget))
+    {
+      const char *name = module ? module->name() : "?";
+      fprintf(stderr,"[%s] %s\n", name, stderr_message ? stderr_message : trouble_msg);
+    }
+
+    if(module && module->widget)
+    {
+      if(label_widget)
+      {
+        // set the warning message in the module's message area just below the header
+        gtk_label_set_text(GTK_LABEL(label_widget), trouble_msg);
+      }
+      else
+      {
+        label_widget = gtk_label_new(trouble_msg);;
+        gtk_label_set_line_wrap(GTK_LABEL(label_widget), TRUE);
+        gtk_label_set_xalign(GTK_LABEL(label_widget), 0.0);
+        gtk_widget_set_name(label_widget, "iop-plugin-warning");
+
+        GtkWidget *iopw = gtk_widget_get_parent(module->widget);
+        gtk_box_pack_start(GTK_BOX(iopw), label_widget, TRUE, TRUE, 0);
+        gtk_box_reorder_child(GTK_BOX(iopw), label_widget, 0);
+        gtk_widget_show(label_widget);
+      }
+
+      gtk_widget_set_tooltip_text(GTK_WIDGET(label_widget), trouble_tooltip);
+
+      // set the module's trouble flag
+      module->has_trouble = TRUE;
+
+      dt_iop_gui_update_header(module);
+    }
+  }
+  else if(module && module->has_trouble)
+  {
+    // no more trouble, so clear the trouble flag and remove the message area
+    module->has_trouble = FALSE;
+
+    dt_iop_gui_update_header(module);
+
+    if(label_widget) gtk_widget_destroy(label_widget);
+  }
 }
 
 void expose(
@@ -265,18 +329,6 @@ void expose(
   {
     dt_dev_process_preview2(dev);
   }
-
-  // an iop's process() might have changed its trouble message.
-  // perform any necessary updates.
-  ++darktable.gui->reset;
-  GList *modules = dev->iop;
-  while(modules)
-  {
-    dt_iop_module_t *module = (dt_iop_module_t *)(modules->data);
-    dt_iop_gui_update_warning_label(module);
-    modules = g_list_next(modules);
-  }
-  --darktable.gui->reset;
 
   dt_pthread_mutex_t *mutex = NULL;
   int stride;
@@ -512,7 +564,7 @@ void expose(
        FIXME: add checks so that we don't make snapshots of preview pipe image surface.
     */
     const int fd = g_open(darktable.develop->proxy.snapshot.filename, O_CREAT | O_WRONLY | O_BINARY, 0600);
-    cairo_surface_write_to_png_stream(image_surface, write_snapshot_data, GINT_TO_POINTER(fd));
+    cairo_surface_write_to_png_stream(image_surface, _write_snapshot_data, GINT_TO_POINTER(fd));
     close(fd);
   }
 
@@ -2929,6 +2981,10 @@ void enter(dt_view_t *self)
   DT_DEBUG_CONTROL_SIGNAL_CONNECT(darktable.signals, DT_SIGNAL_DEVELOP_PREVIEW2_PIPE_FINISHED,
                             G_CALLBACK(_darkroom_ui_preview2_pipe_finish_signal_callback), (gpointer)self);
 
+  DT_DEBUG_CONTROL_SIGNAL_CONNECT(darktable.signals, DT_SIGNAL_TROUBLE_MESSAGE,
+                                  G_CALLBACK(_display_module_trouble_message_callback),
+                                  (gpointer)self);
+
   dt_print(DT_DEBUG_CONTROL, "[run_job+] 11 %f in darkroom mode\n", dt_get_wtime());
   dt_develop_t *dev = (dt_develop_t *)self->data;
   if(!dev->form_gui)
@@ -2945,6 +3001,7 @@ void enter(dt_view_t *self)
   // change active image
   dt_view_active_images_reset(FALSE);
   dt_view_active_images_add(dev->image_storage.id, TRUE);
+  dt_ui_thumbtable(darktable.gui->ui)->mouse_inside = FALSE; // consider mouse outside filmstrip by default
 
   dt_control_set_dev_zoom(DT_ZOOM_FIT);
   dt_control_set_dev_zoom_x(0);
@@ -3070,6 +3127,10 @@ void leave(dt_view_t *self)
 
   DT_DEBUG_CONTROL_SIGNAL_DISCONNECT(darktable.signals, G_CALLBACK(_darkroom_ui_preview2_pipe_finish_signal_callback),
                                (gpointer)self);
+
+  DT_DEBUG_CONTROL_SIGNAL_DISCONNECT(darktable.signals,
+                                     G_CALLBACK(_display_module_trouble_message_callback),
+                                     (gpointer)self);
 
   // store groups for next time:
   dt_conf_set_int("plugins/darkroom/groups", dt_dev_modulegroups_get(darktable.develop));
@@ -3589,9 +3650,14 @@ void scrolled(dt_view_t *self, double x, double y, int up, int state)
   zoom_y += mouse_off_y / (proch * scale);
   zoom = DT_ZOOM_FREE;
   closeup = 0;
+
+  const gboolean constrained = !((state & GDK_CONTROL_MASK) == GDK_CONTROL_MASK);
   if(up)
   {
-    if((scale == 1.0f || scale == 2.0f) && !((state & GDK_CONTROL_MASK) == GDK_CONTROL_MASK)) return;
+    if(fitscale <= 1.0f && (scale == 1.0f || scale == 2.0f) && constrained) return; // for large image size
+    else if(fitscale > 1.0f && fitscale <= 2.0f && scale == 2.0f && constrained) return; // for medium image size
+
+    // calculate new scale
     if(scale >= 16.0f)
       return;
     else if(scale >= 8.0f)
@@ -3600,21 +3666,21 @@ void scrolled(dt_view_t *self, double x, double y, int up, int state)
       scale = 8.0;
     else if(scale >= 2.0f)
       scale = 4.0;
-    else if(scale < fitscale)
-      scale += .05f * (1.0f - fitscale);
+    else if(scale >= fitscale)
+      scale += .1f * fabsf(1.0f - fitscale);
     else
-      scale += .1f * (1.0f - fitscale);
+      scale += .05f * fabsf(1.0f - fitscale);
   }
   else
   {
-    if(scale == fitscale && !((state & GDK_CONTROL_MASK) == GDK_CONTROL_MASK))
-      return;
-    else if(scale < 0.5 * fitscale)
-      return;
-    else if(scale <= fitscale)
-      scale -= .05f * (1.0f - fitscale);
+    if(fitscale <= 2.0f && ((scale == fitscale && constrained) || scale < 0.5 * fitscale)) return; // for large and medium image size
+    else if(fitscale > 2.0f && scale < 1.0f) return; // for small image size
+
+    // calculate new scale
+    if(scale <= fitscale)
+      scale -= .05f * fabsf(1.0f - fitscale);
     else if(scale <= 2.0f)
-      scale -= .1f * (1.0f - fitscale);
+      scale -= .1f * fabsf(1.0f - fitscale);
     else if(scale <= 4.0f)
       scale = 2.0f;
     else if(scale <= 8.0f)
@@ -3622,10 +3688,21 @@ void scrolled(dt_view_t *self, double x, double y, int up, int state)
     else
       scale = 8.0f;
   }
-  // we want to be sure to stop at 1:1 and FIT levels
-  if((scale - 1.0) * (oldscale - 1.0) < 0) scale = 1.0f;
-  if((scale - fitscale) * (oldscale - fitscale) < 0) scale = fitscale;
-  scale = fmaxf(fminf(scale, 16.0f), 0.5 * fitscale);
+
+  if (fitscale <= 1.0f) // for large image size, stop at 1:1 and FIT levels, minimum at 0.5 * FIT
+  {
+    if((scale - 1.0) * (oldscale - 1.0) < 0) scale = 1.0f;
+    if((scale - fitscale) * (oldscale - fitscale) < 0) scale = fitscale;
+    scale = fmaxf(scale, 0.5 * fitscale);
+  }
+  else if (fitscale > 1.0f && fitscale <= 2.0f) // for medium image size, stop at 2:1 and FIT levels, minimum at 0.5 * FIT
+  {
+    if((scale - 2.0) * (oldscale - 2.0) < 0) scale = 2.0f;
+    if((scale - fitscale) * (oldscale - fitscale) < 0) scale = fitscale;
+    scale = fmaxf(scale, 0.5 * fitscale);
+  }
+  else scale = fmaxf(scale, 1.0f); // for small image size, minimum at 1:1
+  scale = fminf(scale, 16.0f);
 
   // for 200% zoom we want pixel doubling instead of interpolation
   if(scale > 15.9999f)

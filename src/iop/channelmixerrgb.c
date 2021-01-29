@@ -1078,11 +1078,11 @@ static void declare_cat_on_pipe(struct dt_iop_module_t *self, gboolean preset)
   }
 }
 
-static inline gboolean is_module_cat_on_pipe(struct dt_iop_module_t *self)
+static inline gboolean _is_another_module_cat_on_pipe(struct dt_iop_module_t *self)
 {
   dt_iop_channelmixer_rgb_gui_data_t *g = (dt_iop_channelmixer_rgb_gui_data_t *)self->gui_data;
   if(!g) return FALSE;
-  return self->dev->proxy.chroma_adaptation == self;
+  return self->dev->proxy.chroma_adaptation && self->dev->proxy.chroma_adaptation != self;
 }
 
 
@@ -1725,12 +1725,14 @@ void validate_color_checker(const float *const restrict in,
 static void _check_for_wb_issue_and_set_trouble_message(struct dt_iop_module_t *self)
 {
   dt_iop_channelmixer_rgb_params_t *p = (dt_iop_channelmixer_rgb_params_t *)self->params;
-  if(self->enabled && !(p->illuminant == DT_ILLUMINANT_PIPE || p->adaptation == DT_ADAPTATION_RGB))
+  if(self->enabled
+     && !(p->illuminant == DT_ILLUMINANT_PIPE || p->adaptation == DT_ADAPTATION_RGB))
   {
     // this module instance is doing chromatic adaptation
-    if(!is_module_cat_on_pipe(self))
+    if(_is_another_module_cat_on_pipe(self))
     {
-      // our second biggest problem : another channelmixerrgb instance is doing CAT earlier in the pipe
+      // our second biggest problem : another channelmixerrgb instance is doing CAT
+      // earlier in the pipe.
       dt_iop_set_module_trouble_message(self, _("double CAT applied"),
                                         _("you have 2 instances or more of color calibration,\n"
                                           "all performing chromatic adaptation.\n"
@@ -1971,7 +1973,7 @@ int mouse_moved(struct dt_iop_module_t *self, double x, double y, double pressur
   if(!self->enabled) return 0;
 
   dt_iop_channelmixer_rgb_gui_data_t *g = (dt_iop_channelmixer_rgb_gui_data_t *)self->gui_data;
-  if(g == NULL) return 0;
+  if(g == NULL || !g->is_profiling_started) return 0;
   if(g->box[0].x == -1.0f || g->box[1].y == -1.0f) return 0;
 
   dt_develop_t *dev = self->dev;
@@ -2045,7 +2047,7 @@ int button_pressed(struct dt_iop_module_t *self, double x, double y, double pres
   if(!self->enabled) return 0;
 
   dt_iop_channelmixer_rgb_gui_data_t *g = (dt_iop_channelmixer_rgb_gui_data_t *)self->gui_data;
-  if(g == NULL) return 0;
+  if(g == NULL || !g->is_profiling_started) return 0;
 
   dt_develop_t *dev = self->dev;
   const float wd = dev->preview_pipe->backbuf_width;
@@ -2094,7 +2096,7 @@ int button_released(struct dt_iop_module_t *self, double x, double y, int which,
   if(!self->enabled) return 0;
 
   dt_iop_channelmixer_rgb_gui_data_t *g = (dt_iop_channelmixer_rgb_gui_data_t *)self->gui_data;
-  if(g == NULL) return 0;
+  if(g == NULL || !g->is_profiling_started) return 0;
   if(g->box[0].x == -1.0f || g->box[1].y == -1.0f) return 0;
   if(!g->is_cursor_close || !g->drag_drop) return 0;
 
@@ -2309,7 +2311,6 @@ static void checker_changed_callback(GtkWidget *widget, gpointer user_data)
   if(wd == 0.f || ht == 0.f) return;
 
   dt_iop_gui_enter_critical_section(self);
-  g->checker_ready = FALSE;
   g->profile_ready = FALSE;
   init_bounding_box(g, wd, ht);
   dt_iop_gui_leave_critical_section(self);
@@ -3158,6 +3159,8 @@ void cleanup_pipe(struct dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev
 
 void gui_reset(dt_iop_module_t *self)
 {
+  dt_iop_channelmixer_rgb_gui_data_t *g = (dt_iop_channelmixer_rgb_gui_data_t *)self->gui_data;
+  g->is_profiling_started = FALSE;
   dt_iop_color_picker_reset(self, TRUE);
   gui_changed(self, NULL, NULL);
 }
@@ -3223,8 +3226,6 @@ void gui_update(struct dt_iop_module_t *self)
 
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g->normalize_grey), p->normalize_grey);
 
-  gui_changed(self, NULL, NULL);
-
   dt_iop_gui_enter_critical_section(self);
 
   const int i = dt_conf_get_int("darkroom/modules/channelmixerrgb/colorchecker");
@@ -3244,7 +3245,10 @@ void gui_update(struct dt_iop_module_t *self)
 
   dt_iop_gui_leave_critical_section(self);
 
+  g->is_profiling_started = FALSE;
   gtk_widget_hide(g->collapsible);
+  dt_bauhaus_widget_set_quad_paint(g->start_profiling, dtgtk_cairo_paint_solid_arrow, CPF_STYLE_BOX | CPF_DIRECTION_LEFT, NULL);
+  gui_changed(self, NULL, NULL);
 }
 
 void init(dt_iop_module_t *module)

@@ -104,6 +104,18 @@ typedef unsigned int u_int;
 #endif /* _OPENMP */
 #endif /* dt_omp_sharedconst */
 
+#ifndef dt_omp_nontemporal
+// Clang 10+ supports the nontemporal() OpenMP directive
+// GCC 9 recognizes it as valid, but does not do anything with it
+// GCC 10+ ???
+#if (__clang__+0 >= 10 || __GNUC__ >= 9)
+#  define dt_omp_nontemporal(...) nontemporal(__VA_ARGS__)
+#else
+// GCC7/8 only support OpenMP 4.5, which does not have the nontemporal() directive.
+#  define dt_omp_nontemporal(var, ...)
+#endif
+#endif /* dt_omp_nontemporal */
+
 #else /* _OPENMP */
 
 # define omp_get_max_threads() 1
@@ -114,7 +126,7 @@ typedef unsigned int u_int;
 /* Create cloned functions for various CPU SSE generations */
 /* See for instructions https://hannes.hauswedell.net/post/2017/12/09/fmv/ */
 /* TL;DR : use only on SIMD functions containing low-level paralellized/vectorized loops */
-#if __has_attribute(target_clones) && !defined(_WIN32) && defined(__SSE__)
+#if __has_attribute(target_clones) && !defined(_WIN32)
 #define __DT_CLONE_TARGETS__ __attribute__((target_clones("default", "sse2", "sse3", "sse4.1", "sse4.2", "popcnt", "avx", "avx2", "avx512f", "fma4")))
 #else
 #define __DT_CLONE_TARGETS__
@@ -506,6 +518,20 @@ static inline float *dt_alloc_perthread_float(const size_t n, size_t* padded_siz
   for (size_t _var = 0; _var < 4; _var++)
 #endif
 
+// copy the RGB channels of a pixel using nontemporal stores if possible; includes the 'alpha' channel as well
+// if faster due to vectorization, but subsequent code should ignore the value of the alpha unless explicitly
+// set afterwards (since it might not have been copied).  NOTE: nontemporal stores will actually be *slower*
+// if we immediately access the pixel again.  This function should only be used when processing an entire
+// image before doing anything else with the destination buffer.
+static inline void copy_pixel_nontemporal(float *const __restrict__ out, const float *const __restrict__ in)
+{
+#if (__clang__+0 > 7) && (__clang__+0 < 10)
+  for_each_channel(k,aligned(in,out:16)) __builtin_nontemporal_store(in[k],out[k]);
+#else
+  for_each_channel(k,aligned(in,out:16) dt_omp_nontemporal(out)) out[k] = in[k];
+#endif
+}
+
 // copy the RGB channels of a pixel; includes the 'alpha' channel as well if faster due to vectorization, but
 // subsequent code should ignore the value of the alpha unless explicitly set afterwards (since it might not have
 // been copied)
@@ -514,205 +540,7 @@ static inline void copy_pixel(float *const __restrict__ out, const float *const 
   for_each_channel(k,aligned(in,out:16)) out[k] = in[k];
 }
 
-static inline void dt_print_mem_usage()
-{
-#if defined(__linux__)
-  char *line = NULL;
-  size_t len = 128;
-  char vmsize[64];
-  char vmpeak[64];
-  char vmrss[64];
-  char vmhwm[64];
-  FILE *f;
-
-  char pidstatus[128];
-  snprintf(pidstatus, sizeof(pidstatus), "/proc/%u/status", (uint32_t)getpid());
-
-  f = g_fopen(pidstatus, "r");
-  if(!f) return;
-
-  /* read memory size data from /proc/pid/status */
-  while(getline(&line, &len, f) != -1)
-  {
-    if(!strncmp(line, "VmPeak:", 7))
-      g_strlcpy(vmpeak, line + 8, sizeof(vmpeak));
-    else if(!strncmp(line, "VmSize:", 7))
-      g_strlcpy(vmsize, line + 8, sizeof(vmsize));
-    else if(!strncmp(line, "VmRSS:", 6))
-      g_strlcpy(vmrss, line + 8, sizeof(vmrss));
-    else if(!strncmp(line, "VmHWM:", 6))
-      g_strlcpy(vmhwm, line + 8, sizeof(vmhwm));
-  }
-  free(line);
-  fclose(f);
-
-  fprintf(stderr, "[memory] max address space (vmpeak): %15s"
-                  "[memory] cur address space (vmsize): %15s"
-                  "[memory] max used memory   (vmhwm ): %15s"
-                  "[memory] cur used memory   (vmrss ): %15s",
-          vmpeak, vmsize, vmhwm, vmrss);
-
-#elif defined(__APPLE__)
-  struct task_basic_info t_info;
-  mach_msg_type_number_t t_info_count = TASK_BASIC_INFO_COUNT;
-
-  if(KERN_SUCCESS != task_info(mach_task_self(), TASK_BASIC_INFO, (task_info_t)&t_info, &t_info_count))
-  {
-    fprintf(stderr, "[memory] task memory info unknown.\n");
-    return;
-  }
-
-  // Report in kB, to match output of /proc on Linux.
-  fprintf(stderr, "[memory] max address space (vmpeak): %15s\n"
-                  "[memory] cur address space (vmsize): %12llu kB\n"
-                  "[memory] max used memory   (vmhwm ): %15s\n"
-                  "[memory] cur used memory   (vmrss ): %12llu kB\n",
-          "unknown", (uint64_t)t_info.virtual_size / 1024, "unknown", (uint64_t)t_info.resident_size / 1024);
-#elif defined (_WIN32)
-  //Based on: http://stackoverflow.com/questions/63166/how-to-determine-cpu-and-memory-consumption-from-inside-a-process
-  MEMORYSTATUSEX memInfo;
-  memInfo.dwLength = sizeof(MEMORYSTATUSEX);
-  GlobalMemoryStatusEx(&memInfo);
-  // DWORDLONG totalVirtualMem = memInfo.ullTotalPageFile;
-
-  // Virtual Memory currently used by current process:
-  PROCESS_MEMORY_COUNTERS_EX pmc;
-  GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS *)&pmc, sizeof(pmc));
-  size_t virtualMemUsedByMe = pmc.PagefileUsage;
-  size_t virtualMemUsedByMeMax = pmc.PeakPagefileUsage;
-
-  // Max Physical Memory currently used by current process
-  size_t physMemUsedByMeMax = pmc.PeakWorkingSetSize;
-
-  // Physical Memory currently used by current process
-  size_t physMemUsedByMe = pmc.WorkingSetSize;
-
-
-  fprintf(stderr, "[memory] max address space (vmpeak): %12llu kB\n"
-                  "[memory] cur address space (vmsize): %12llu kB\n"
-                  "[memory] max used memory   (vmhwm ): %12llu kB\n"
-                  "[memory] cur used memory   (vmrss ): %12llu Kb\n",
-          virtualMemUsedByMeMax / 1024, virtualMemUsedByMe / 1024, physMemUsedByMeMax / 1024,
-          physMemUsedByMe / 1024);
-
-#else
-  fprintf(stderr, "dt_print_mem_usage() currently unsupported on this platform\n");
-#endif
-}
-
-static inline int dt_get_num_atom_cores()
-{
-#if defined(__linux__)
-  int count = 0;
-  char line[256];
-  FILE *f = g_fopen("/proc/cpuinfo", "r");
-  if(f)
-  {
-    while(!feof(f))
-    {
-      if(fgets(line, sizeof(line), f))
-      {
-        if(!strncmp(line, "model name", 10))
-        {
-          if(strstr(line, "Atom"))
-          {
-            count++;
-          }
-        }
-      }
-    }
-    fclose(f);
-  }
-  return count;
-#elif defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-  int ret, hw_ncpu;
-  int mib[2] = { CTL_HW, HW_MODEL };
-  char *hw_model, *index;
-  size_t length;
-
-  /* Query hw.model to get the required buffer length and allocate the
-   * buffer. */
-  ret = sysctl(mib, 2, NULL, &length, NULL, 0);
-  if(ret != 0)
-  {
-    return 0;
-  }
-
-  hw_model = (char *)malloc(length + 1);
-  if(hw_model == NULL)
-  {
-    return 0;
-  }
-
-  /* Query hw.model again, this time with the allocated buffer. */
-  ret = sysctl(mib, 2, hw_model, &length, NULL, 0);
-  if(ret != 0)
-  {
-    free(hw_model);
-    return 0;
-  }
-  hw_model[length] = '\0';
-
-  /* Check if the processor model name contains "Atom". */
-  index = strstr(hw_model, "Atom");
-  free(hw_model);
-  if(index == NULL)
-  {
-    return 0;
-  }
-
-  /* Get the number of cores, using hw.ncpu sysctl. */
-  mib[1] = HW_NCPU;
-  hw_ncpu = 0;
-  length = sizeof(hw_ncpu);
-  ret = sysctl(mib, 2, &hw_ncpu, &length, NULL, 0);
-  if(ret != 0)
-  {
-    return 0;
-  }
-
-  return hw_ncpu;
-#else
-  return 0;
-#endif
-}
-
-static inline size_t dt_get_total_memory()
-{
-#if defined(__linux__)
-  FILE *f = g_fopen("/proc/meminfo", "rb");
-  if(!f) return 0;
-  size_t mem = 0;
-  char *line = NULL;
-  size_t len = 0;
-  if(getline(&line, &len, f) != -1) mem = atol(line + 10);
-  fclose(f);
-  if(len > 0) free(line);
-  return mem;
-#elif defined(__APPLE__) || defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__)            \
-    || defined(__OpenBSD__)
-#if defined(__APPLE__)
-  int mib[2] = { CTL_HW, HW_MEMSIZE };
-#elif defined(HW_PHYSMEM64)
-  int mib[2] = { CTL_HW, HW_PHYSMEM64 };
-#else
-  int mib[2] = { CTL_HW, HW_PHYSMEM };
-#endif
-  uint64_t physical_memory;
-  size_t length = sizeof(uint64_t);
-  sysctl(mib, 2, (void *)&physical_memory, &length, (void *)NULL, 0);
-  return physical_memory / 1024;
-#elif defined _WIN32
-  MEMORYSTATUSEX memInfo;
-  memInfo.dwLength = sizeof(MEMORYSTATUSEX);
-  GlobalMemoryStatusEx(&memInfo);
-  return memInfo.ullTotalPhys / (uint64_t)1024;
-#else
-  // assume 2GB until we have a better solution.
-  fprintf(stderr, "Unknown memory size. Assuming 2GB\n");
-  return 2097152;
-#endif
-}
+void dt_print_mem_usage();
 
 void dt_configure_performance();
 

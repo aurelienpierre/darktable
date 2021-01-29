@@ -540,7 +540,7 @@
     <shortdescription>maximum fps of live view update in tethering view</shortdescription>
     <longdescription>going too fast will result in too many redraws without a real benefit</longdescription>
   </dtconfig>
-  <dtconfig prefs="lighttable" section="general">
+  <dtconfig dialog="collect">
     <name>plugins/collect/filmroll_sort</name>
     <type>
       <enum>
@@ -556,8 +556,8 @@
     <name>plugins/collect/descending</name>
     <type>bool</type>
     <default>true</default>
-    <shortdescription>sort collection recent to older</shortdescription>
-    <longdescription>changes the default collections-list order for folders, times and dates to run from recent to older</longdescription>
+    <shortdescription>sort collection descending</shortdescription>
+    <longdescription>sort the following collections in descending order: 'film roll' by folder, 'folder', 'times' (e.g. 'date taken')</longdescription>
   </dtconfig>
   <dtconfig>
     <name>ui_last/colorpicker_mean</name>
@@ -704,6 +704,13 @@
     <type>string</type>
     <default/>
     <shortdescription>comma separated tags to be applied when importing</shortdescription>
+    <longdescription/>
+  </dtconfig>
+  <dtconfig ui="yes">
+    <name>ui_last/import_last_tags_imported</name>
+    <type>bool</type>
+    <default>true</default>
+    <shortdescription>import tags from xmp</shortdescription>
     <longdescription/>
   </dtconfig>
   <dtconfig>
@@ -2428,9 +2435,9 @@
   </dtconfig>
   <dtconfig>
     <name>metadata/resolution</name>
-    <type>int</type>
+    <type min="72" max="9600">int</type>
     <default>300</default>
-    <shortdescription/>
+    <shortdescription>DPI value for exported files</shortdescription>
     <longdescription/>
   </dtconfig>
   <dtconfig prefs="storage" section="xmp">
