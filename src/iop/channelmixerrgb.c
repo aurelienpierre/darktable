@@ -1376,7 +1376,9 @@ static const extraction_result_t _extract_patches(const float *const restrict in
   float XYZ_black_ref[4];
   float *XYZ_black_test = patches + g->checker->black * 4;
   dt_Lab_to_XYZ(g->checker->values[g->checker->black].Lab, XYZ_black_ref);
-  const float black = XYZ_black_test[1] * exposure - XYZ_black_ref[1];
+  float black = 0.f;
+  for(size_t c = 0; c < 3; c++) black += XYZ_black_test[c] * exposure - XYZ_black_ref[c];
+  black /= 3.f;
 
   for(size_t k = 0; k < g->checker->patches; k++)
   {
@@ -1392,6 +1394,11 @@ static const extraction_result_t _extract_patches(const float *const restrict in
     for(size_t c = 0; c < 3; c++) patches[k * 4 + c] = (normalize) ? XYZ[c] * XYZ_ref[1] / Y : XYZ[c];
     if(patches_luminance != NULL) patches_luminance[k] = (normalize) ? Y / XYZ_ref[1] : 1.f;
   }
+
+  // the exposure module applies output  = (input - offset) * exposure
+  // but we compute output = input * exposure - offset
+  // so, rescale offset to adapt our offset to exposure module GUI
+  black /= exposure;
 
   const extraction_result_t result = { black, exposure };
   return result;
