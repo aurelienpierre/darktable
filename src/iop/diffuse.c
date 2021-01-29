@@ -413,69 +413,171 @@ static int get_scales(const dt_iop_roi_t *roi_in, const dt_dev_pixelpipe_iop_t *
   return CLAMP(scales, 1, MAX_NUM_SCALES);
 }
 
-
-inline static void wavelets_reconstruct_RGB(const float *const restrict HF, const float *const restrict LF,
-                                            float *const restrict reconstructed, const size_t width,
-                                            const size_t height, const size_t ch, const size_t s, const size_t scales)
+static inline void guided_prefilter(const float *const restrict in, float *const restrict out,
+                                    const size_t width, const size_t height, const int mult)
 {
-#ifdef _OPENMP
-#pragma omp parallel for simd default(none)                                                          \
-    dt_omp_firstprivate(width, height, ch, HF, LF, reconstructed, s, scales) schedule(simd : static) \
-    aligned(reconstructed, HF, LF:64)
-#endif
-  for(size_t k = 0; k < height * width * 4; ++k)
-  {
-    reconstructed[k] += (s == scales - 1) ? HF[k] + LF[k] : HF[k];
-  }
+
+ #ifdef _OPENMP
+  #pragma omp parallel for default(none) \
+  dt_omp_firstprivate(in, out, height, width, mult) \
+  schedule(dynamic) collapse(2)
+  #endif
+  for(size_t i = 0; i < height; ++i)
+    for(size_t j = 0; j < width; ++j)
+    {
+      const size_t index = (i * width + j) * 4;
+      const float DT_ALIGNED_ARRAY *restrict grad_pixel[25] = { NULL };
+
+      // local neighbours
+      const size_t j_grad[5] = { CLAMP((int)(j - mult * 2), (int)0, (int)width - 1),   // y - 2
+                                 CLAMP((int)(j - mult), (int)0, (int)width - 1),   // y - 1
+                                 j,                                             // y
+                                 CLAMP((int)(j + mult), (int)0, (int)width - 1),   // y + 1
+                                 CLAMP((int)(j + mult * 2), (int)0, (int)width - 1) }; // y + 2
+
+      const size_t i_grad[5] = { CLAMP((int)(i - mult * 2), (int)0, (int)height - 1),   // x - 2
+                                 CLAMP((int)(i - mult), (int)0, (int)height - 1),   // x - 1
+                                                                            i,   // x
+                                 CLAMP((int)(i + mult), (int)0, (int)height - 1),   // x + 1
+                                 CLAMP((int)(i + mult * 2), (int)0, (int)height - 1) }; // x + 2
+
+      for(size_t ii = 0; ii < 5; ii++)
+        for(size_t jj = 0; jj < 5; jj++)
+        {
+          grad_pixel[5 * ii + jj] = (const float *const restrict)__builtin_assume_aligned(in + (i_grad[ii] * width + j_grad[jj]) * 4, 16);
+        }
+
+      // local copy of the center pixel
+      const float *const restrict center = (const float *const restrict)__builtin_assume_aligned(in + index, 16);
+      // assert(grad_pixel[4] == lapl_pixel[4] == center)
+
+      // pre-filtering with a guided filter to tape RGB channels to G and limit chroma noise
+      float channel_mean[4] = { 0.f };
+      float channel_var[4] = { 0.f };
+      float channel_covar[4] = { 0.f };
+
+      for(size_t k = 0; k < 25; k++)
+      {
+        channel_mean[0] += grad_pixel[k][0] / 25.f;
+        channel_mean[1] += grad_pixel[k][1] / 25.f;
+        channel_mean[2] += grad_pixel[k][2] / 25.f;
+        channel_var[0]  += sqf(grad_pixel[k][0]) / 25.f;
+        channel_var[1]  += sqf(grad_pixel[k][1]) / 25.f;
+        channel_var[2]  += sqf(grad_pixel[k][2]) / 25.f;
+        channel_covar[0] += grad_pixel[k][0] * grad_pixel[k][1] / 25.f;
+        channel_covar[1] += grad_pixel[k][0] * grad_pixel[k][2] / 25.f;
+        channel_covar[2] += grad_pixel[k][1] * grad_pixel[k][2] / 25.f;
+      }
+
+      // Covariances
+      channel_covar[0] -= channel_mean[0] * channel_mean[1];
+      channel_covar[1] -= channel_mean[0] * channel_mean[2];
+      channel_covar[2] -= channel_mean[1] * channel_mean[2];
+
+      // Variances
+      channel_var[0] -= sqf(channel_mean[0]);
+      channel_var[1] -= sqf(channel_mean[1]);
+      channel_var[2] -= sqf(channel_mean[2]);
+
+      const float eps = 0.1f;
+
+      // Build the matrix of covariance
+      const float Sigma_0_0 = channel_var[0] + eps;
+      const float Sigma_0_1 = channel_covar[0];
+      const float Sigma_0_2 = channel_covar[1];
+      const float Sigma_1_1 = channel_var[1] + eps;
+      const float Sigma_1_2 = channel_covar[2];
+      const float Sigma_2_2 = channel_var[2] + eps;
+      const float det0 = Sigma_0_0 * (Sigma_1_1 * Sigma_2_2 - Sigma_1_2 * Sigma_1_2)
+                       - Sigma_0_1 * (Sigma_0_1 * Sigma_2_2 - Sigma_0_2 * Sigma_1_2)
+                       + Sigma_0_2 * (Sigma_0_1 * Sigma_1_2 - Sigma_0_2 * Sigma_1_1);
+
+      float DT_ALIGNED_PIXEL a[4] = { 0.f };
+      float b;
+
+      // Invert the matrix of covariance through Cramer's rule
+      if(fabsf(det0) > 0.f)
+      {
+        // we guide R and B with G, and G with itself
+        const float cov_r = channel_covar[0];
+        const float cov_g = channel_var[1];
+        const float cov_b = channel_covar[2];
+
+        const float det1 = cov_r     * (Sigma_1_1 * Sigma_2_2 - Sigma_1_2 * Sigma_1_2)
+                         - Sigma_0_1 * (cov_g     * Sigma_2_2 - cov_b     * Sigma_1_2)
+                         + Sigma_0_2 * (cov_g     * Sigma_1_2 - cov_b     * Sigma_1_1);
+
+        const float det2 = Sigma_0_0 * (cov_g     * Sigma_2_2 - cov_b     * Sigma_1_2)
+                         - cov_r     * (Sigma_0_1 * Sigma_2_2 - Sigma_0_2 * Sigma_1_2)
+                         + Sigma_0_2 * (Sigma_0_1 * cov_b     - Sigma_0_2 * cov_g);
+
+        const float det3 = Sigma_0_0 * (Sigma_1_1 * cov_b     - Sigma_1_2 * cov_g)
+                         - Sigma_0_1 * (Sigma_0_1 * cov_b     - Sigma_0_2 * cov_g)
+                         + cov_r     * (Sigma_0_1 * Sigma_1_2 - Sigma_0_2 * Sigma_1_1);
+
+        a[0] = det1 / det0;
+        a[1] = det2 / det0;
+        a[2] = det3 / det0;
+        b = (center[0] + center[1] + center[2]) / 3.f - a[0] * center[0] - a[1] * center[1] - a[2] * center[2];
+      }
+      else
+      {
+        // linear system is singular
+        b = center[1];
+      }
+
+      // Prefilter the center
+      // TODO: DEBUG
+      out[index + 0] = center[0] + 0.f * (a[0] * center[0] + b);
+      out[index + 1] = center[1] + 0.f * (a[1] * center[1] + b);
+      out[index + 2] = center[2] + 0.f * (a[2] * center[2] + b);
+    }
 }
 
 // Discretization parameters for the Partial Derivative Equation solver
 #define H 1              // spatial step
 #define KAPPA 0.25f    // 0.25 if h = 1, 1 if h = 2
 
-static inline void heat_PDE_inpanting(const float *const restrict input,
-                                      float *const restrict output, const uint8_t *const restrict mask,
+static inline void heat_PDE_inpanting(const float *const restrict HF, const float *const restrict LF,
+                                      const uint8_t *const restrict mask, float *const restrict output,
                                       const size_t width, const size_t height, const size_t ch, const int mult,
                                       const float texture, const float structure, const float zeroth, const float base_layer,
                                       const float edges_texture, const float regularization_texture,
                                       const float edges_structure, const float regularization_structure,
                                       const float regularization_zeroth,
                                       const float edges_base, const float regularization_base,
-                                      const dt_iop_diffuse_bokeh_t respect_bokeh, const int radius)
+                                      const dt_iop_diffuse_bokeh_t respect_bokeh, const int radius, const int last_step)
 {
   // Simultaneous inpainting for image structure and texture using anisotropic heat transfer model
   // https://www.researchgate.net/publication/220663968
+  // modified for a multi-scale wavelet setup
 
   const float DT_ALIGNED_ARRAY ABCD[4] = { texture * KAPPA,
                                            structure * KAPPA,
                                            zeroth,
                                            base_layer * KAPPA };
 
-  const int compute_base = (base_layer != 0.f);
-  const int compute_zero = (zeroth != 0.f);
-  const int compute_structure = (structure != 0.f);
-  const int compute_texture = (texture != 0.f);
-
-  const float bokeh_factor = sqf((float)radius / (float)mult);
+  const int compute_texture = TRUE;
+  //(texture != 0.f);
 
   const int has_mask = (mask != NULL);
 
-  const float *const restrict in = DT_IS_ALIGNED(input);
+  const float *const restrict in = DT_IS_ALIGNED(HF);
   float *const restrict out = DT_IS_ALIGNED(output);
 
   #ifdef _OPENMP
   #pragma omp parallel for default(none) \
-  dt_omp_firstprivate(in, out, mask, height, width, ch, ABCD, \
-    has_mask, mult, compute_base, compute_zero, compute_structure, compute_texture, \
+  dt_omp_firstprivate(in, out, mask, LF, height, width, ch, ABCD, \
+    has_mask, mult, compute_texture, \
     edges_texture, edges_structure, edges_base, regularization_texture, regularization_structure, regularization_zeroth, regularization_base, \
-    respect_bokeh, radius, bokeh_factor) \
+    respect_bokeh, radius, last_step) \
   schedule(dynamic) collapse(2)
   #endif
   for(size_t i = 0; i < height; ++i)
     for(size_t j = 0; j < width; ++j)
     {
       const size_t idx = (i * width + j);
-      const size_t index = idx * ch;
+      const size_t index = idx * 4;
       uint8_t opacity = (has_mask) ? mask[idx] : 1;
 
       if(opacity)
@@ -485,36 +587,30 @@ static inline void heat_PDE_inpanting(const float *const restrict input,
         const float DT_ALIGNED_ARRAY *restrict grad_pixel[9] = { NULL };
         const float DT_ALIGNED_ARRAY *restrict lapl_pixel[9] = { NULL };
 
-        if(compute_base || compute_structure || compute_texture)
-        {
-          // local neighbours
-          const size_t j_grad[3] = { CLAMP((int)(j - H), (int)0, (int)width - 1),    // y - 1
-                                                                              j,     // y
-                                    CLAMP((int)(j + H), (int)0, (int)width - 1) };   // y + 1
+        // local neighbours
+        const size_t j_grad[3] = { CLAMP((int)(j - H), (int)0, (int)width - 1),     // y - 1
+                                                                             j,     // y
+                                   CLAMP((int)(j + H), (int)0, (int)width - 1) };   // y + 1
 
-          const size_t i_grad[3] = { CLAMP((int)(i - H), (int)0, (int)height - 1),   // x - 1
-                                                                                i,   // x
-                                    CLAMP((int)(i + H), (int)0, (int)height - 1) };  // x + 1
+        const size_t i_grad[3] = { CLAMP((int)(i - H), (int)0, (int)height - 1),    // x - 1
+                                                                              i,    // x
+                                   CLAMP((int)(i + H), (int)0, (int)height - 1) };  // x + 1
 
-          // non-local neighbours
-          const size_t j_lapl[3] = { CLAMP((int)(j - mult * H), (int)0, (int)width - 1),   // y - mult
-                                                                              j,           // y
-                                    CLAMP((int)(j + mult * H), (int)0, (int)width - 1) };  // y + mult
+        // non-local neighbours
+        const size_t j_lapl[3] = { CLAMP((int)(j - mult * H), (int)0, (int)width - 1),    // y - mult
+                                                                                    j,    // y
+                                   CLAMP((int)(j + mult * H), (int)0, (int)width - 1) };  // y + mult
 
-          const size_t i_lapl[3] = { CLAMP((int)(i - mult * H), (int)0, (int)height - 1),  // x - mult
-                                                                                i,         // x
-                                    CLAMP((int)(i + mult * H), (int)0, (int)height - 1) }; // x + mult
+        const size_t i_lapl[3] = { CLAMP((int)(i - mult * H), (int)0, (int)height - 1),   // x - mult
+                                                                                     i,   // x
+                                   CLAMP((int)(i + mult * H), (int)0, (int)height - 1) }; // x + mult
 
-          for(size_t ii = 0; ii < 3; ii++)
-            for(size_t jj = 0; jj < 3; jj++)
-            {
-              if(compute_base || compute_structure)
-                grad_pixel[3 * ii + jj] = (const float *const restrict)__builtin_assume_aligned(in + (i_grad[ii] * width + j_grad[jj]) * ch, 16);
-
-              if(compute_texture)
-                lapl_pixel[3 * ii + jj] = (const float *const restrict)__builtin_assume_aligned(in + (i_lapl[ii] * width + j_lapl[jj]) * ch, 16);
-            }
-        }
+        for(size_t ii = 0; ii < 3; ii++)
+          for(size_t jj = 0; jj < 3; jj++)
+          {
+            grad_pixel[3 * ii + jj] = (const float *const restrict)__builtin_assume_aligned(in + (i_grad[ii] * width + j_grad[jj]) * 4, 16);
+            lapl_pixel[3 * ii + jj] = (const float *const restrict)__builtin_assume_aligned(in + (i_lapl[ii] * width + j_lapl[jj]) * 4, 16);
+          }
 
         // assert(grad_pixel[4] == lapl_pixel[4] == center)
         const float *const restrict center = (const float *const restrict)__builtin_assume_aligned(in + index, 16);
@@ -542,14 +638,10 @@ static inline void heat_PDE_inpanting(const float *const restrict input,
         for(size_t c = 0; c < 4; c++)
         {
           // Compute the zeroth-order term
-          if(compute_zero)
-          {
-            TV[c][2] = fabsf(center[c]) + regularization_zeroth;
-          }
+          TV[c][2] = fabsf(center[c]) + regularization_zeroth;
 
-          if(compute_structure || compute_base)
+          // Compute the gradient with centered finite differences - warning : x is vertical, y is horizontal
           {
-            // Compute the gradient with centered finite differences - warning : x is vertical, y is horizontal
             const float grad_x = (south[c] - north[c]) / 2.0f; // du(i, j) / dx
             const float grad_y = (east[c] - west[c]) / 2.0f;   // du(i, j) / dy
 
@@ -566,7 +658,6 @@ static inline void heat_PDE_inpanting(const float *const restrict input,
             const float cos_theta2 = sqf(cos_theta);
 
             // Build the convolution kernel for the structure extraction
-            if(compute_structure)
             {
               const float c2 = expf(-tv / edges_structure);
               TV[c][1] = tv + regularization_structure;
@@ -591,7 +682,6 @@ static inline void heat_PDE_inpanting(const float *const restrict input,
             }
 
             // Build the convolution kernel for the base
-            if(compute_base)
             {
               const float c2 = expf(-tv / edges_base);
               TV[c][3] = tv + regularization_base;
@@ -656,12 +746,6 @@ static inline void heat_PDE_inpanting(const float *const restrict input,
           }
         }
 
-        // Get the difference of gaussians as a metric of bokeh and a generalized gaussian to find the fall-of
-        // This assumes we diffuse a wavelet high-pass details layer that is roughly equivalent to a second order derivative
-        const float bokeh = (respect_bokeh == DT_DIFFUSE_BOKEH_EXCLUDE) ? 1.f - expf(- bokeh_factor * (sqf(center[0]) + sqf(center[1]) + sqf(center[2])))
-                              : (respect_bokeh == DT_DIFFUSE_BOKEH_INCLUDE) ? expf(- bokeh_factor * (sqf(center[0]) + sqf(center[1]) + sqf(center[2])))
-                                : 1.f;
-
         // Use a collaborative regularization
         float DT_ALIGNED_ARRAY TV_RGB[4];
         #ifdef _OPENMP
@@ -672,59 +756,71 @@ static inline void heat_PDE_inpanting(const float *const restrict input,
 
         // Convolve anisotropic filters at current pixel for directional derivatives
         float DT_ALIGNED_ARRAY derivatives[4][4];
+        float DT_ALIGNED_PIXEL variance[4];
+
         #ifdef _OPENMP
-        #pragma omp simd aligned(kern_grad, kern_base, kern_lap, in, derivatives, grad_pixel, lapl_pixel: 64)
+        #pragma omp simd aligned(kern_grad, kern_base, kern_lap, in, derivatives, grad_pixel, lapl_pixel : 64) \
+           aligned(center, variance : 16)
         #endif
         for(size_t c = 0; c < 4; c++)
         {
           float acc1 = 0.f;
           float acc2 = 0.f;
           float acc3 = 0.f;
+          float var = 0.f;
+          float kernel_sum = 0.f;
 
-          if(compute_base || compute_structure)
+          for(size_t k = 0; k < 9; k++)
           {
-            for(size_t k = 0; k < 9; k++)
-            {
-              // Convolve the base term
-              acc1 += kern_base[k][c] * grad_pixel[k][c];
+            // Convolve the base term
+            const float bt = kern_base[k][c] * grad_pixel[k][c];
+            acc1 += bt;
 
-              // Convolve first-order term (gradient)
-              acc2 += kern_grad[k][c] * grad_pixel[k][c];
-            }
-          }
+            // Prepare the energy term of the variance formula
+            var += sqf(bt);
 
-          if(compute_texture)
-          {
-            for(size_t k = 0; k < 9; k++)
-            {
-              // Convolve second-order term (laplacian)
-              acc3 += kern_lap[k][c] * lapl_pixel[k][c];
-            }
+            // Track the sum of the kernel elems to compute an accurate average and standard deviation later
+            kernel_sum += kern_base[k][c];
+
+            // Convolve first-order term (gradient)
+            acc2 += kern_grad[k][c] * grad_pixel[k][c];
+
+            // Convolve second-order term (laplacian)
+            acc3 += kern_lap[k][c] * lapl_pixel[k][c];
           }
 
           derivatives[c][0] = acc3;
           derivatives[c][1] = acc2;
           derivatives[c][2] = -center[c];
           derivatives[c][3] = -acc1;
+          variance[c] = (var - sqf(acc1)) / sqf(kernel_sum);
         }
+
+        // Get the difference of gaussians as a metric of bokeh and a generalized gaussian to find the fall-of
+        // This assumes we diffuse a wavelet high-pass details layer that is roughly equivalent to a second order derivative
+        const float variances = sqrtf(sqf(variance[0]) + sqf(variance[1]) + sqf(variance[2]));
+        const float bokeh = (respect_bokeh == DT_DIFFUSE_BOKEH_EXCLUDE)   ? (1.f - expf(-variances))
+                            : (respect_bokeh == DT_DIFFUSE_BOKEH_INCLUDE) ? (expf(-variances))
+                                                                          : 1.f;
 
         // Update the solution
         #ifdef _OPENMP
-        #pragma omp simd aligned(in, out, derivatives, TV_RGB: 64)
+        #pragma omp simd aligned(in, out, derivatives, TV_RGB, LF: 64)
         #endif
         for(size_t c = 0; c < 4; c++)
         {
           float acc = 0.f;
           for(size_t k = 0; k < 4; k++) acc += derivatives[c][k] * TV_RGB[k];
-          out[index + c] = center[c] + bokeh * acc;
+          out[index + c] += (last_step) ? center[c] + bokeh * acc + LF[index + c]
+                                        : center[c] + bokeh * acc;
         }
       }
       else
       {
         #ifdef _OPENMP
-        #pragma omp simd aligned(in, out: 64)
+        #pragma omp simd aligned(in, out, LF: 64)
         #endif
-        for(size_t c = 0; c < 4; c++) out[index + c] = in[index + c];
+        for(size_t c = 0; c < 4; c++) out[index + c] += (last_step) ? in[index + c] + LF[index + c] : in[index + c];
       }
     }
 }
@@ -794,12 +890,12 @@ static inline gint reconstruct_highlights(const float *const restrict in, float 
   // wavelets scales buffers
   float *const restrict LF_even = dt_alloc_align_float(roi_out->width * roi_out->height * ch); // low-frequencies RGB
   float *const restrict LF_odd = dt_alloc_align_float(roi_out->width * roi_out->height * ch);  // low-frequencies RGB
-  float *const restrict HF_RGB = dt_alloc_align_float(roi_out->width * roi_out->height * ch);  // high-frequencies RGB
 
   // alloc a permanent reusable buffer for intermediate computations - avoid multiple alloc/free
+  float *const restrict temp = dt_alloc_align_float(roi_out->width * roi_out->height * ch);
   float *const restrict temp1 = dt_alloc_align_float(roi_out->width * roi_out->height * ch);
 
-  if(!LF_even || !LF_odd || !HF_RGB || !temp1)
+  if(!LF_even || !LF_odd || !temp)
   {
     dt_control_log(_("filmic highlights reconstruction failed to allocate memory, check your RAM settings"));
     success = FALSE;
@@ -818,79 +914,55 @@ static inline gint reconstruct_highlights(const float *const restrict in, float 
   {
     const float *restrict detail;       // buffer containing this scale's input
     float *restrict LF;                 // output buffer for the current scale
-    float *restrict HF_RGB_temp;        // temp buffer for HF_RBG terms before blurring
+    float *restrict HF;                 // temp buffer for HF_RBG terms before blurring
 
     // swap buffers so we only need 2 LF buffers : the LF at scale (s-1) and the one at current scale (s)
     if(s == 0)
     {
       detail = in;
       LF = LF_odd;
-      HF_RGB_temp = LF_even;
+      HF = LF_even;
     }
     else if(s % 2 != 0)
     {
       detail = LF_odd;
       LF = LF_even;
-      HF_RGB_temp = LF_odd;
+      HF = LF_odd;
     }
     else
     {
       detail = LF_even;
       LF = LF_odd;
-      HF_RGB_temp = LF_even;
+      HF = LF_even;
     }
 
     const int mult = 1 << s; // fancy-pants C notation for 2^s with integer type, don't be afraid
 
+    // Tape R and B onto G to prefilter chroma noise
+    guided_prefilter(detail, temp1, roi_out->width, roi_out->height, mult);
+
     // Compute wavelets low-frequency scales
-    blur_2D_Bspline(detail, LF, temp1, roi_out->width, roi_out->height, mult);
+    blur_2D_Bspline(temp1, LF, temp, roi_out->width, roi_out->height, mult);
 
     // Compute wavelets high-frequency scales and save the mininum of texture over the RGB channels
-    // Note : HF_RGB = detail - LF, HF_grey = max(HF_RGB)
-    wavelets_detail_level(detail, LF, HF_RGB_temp, roi_out->width, roi_out->height, ch);
+    // Note : HF_RGB = detail - LF,
+    wavelets_detail_level(temp1, LF, HF, roi_out->width, roi_out->height, ch);
 
     // diffuse particles
-    float *HF_in = NULL;
-    float *HF_out = NULL;
-
     const float factor = data->update * diffusion_scale_factor((float)mult, data->radius, zoom, data->model);
 
-    for(size_t it = 0; it < data->iterations; it++)
-    {
-      if(it == 0)
-      {
-        HF_in = HF_RGB_temp;
-        HF_out = temp1;
-      }
-      else if(it % 2 != 0)
-      {
-        HF_in = temp1;
-        HF_out = HF_RGB_temp;
-      }
-      else
-      {
-        HF_in = HF_RGB_temp;
-        HF_out = temp1;
-      }
-
-      heat_PDE_inpanting(HF_in, HF_out, mask, roi_out->width, roi_out->height, ch, mult,
-                         factor * texture, factor * structure, factor * zeroth, factor * base,
-                         edges_texture, regularization_texture, edges_structure, regularization_structure,
-                         regularization_zeroth, edges_base, regularization_base,
-                         data->respect_bokeh, data->radius);
-    }
-
-    HF_RGB_temp = HF_out;
-
-    // Collapse wavelets
-    wavelets_reconstruct_RGB(HF_RGB_temp, LF, reconstructed, roi_out->width, roi_out->height, ch, s, scales);
+    heat_PDE_inpanting(HF, LF, mask, reconstructed, roi_out->width, roi_out->height, ch, mult,
+                       factor * texture, factor * structure, factor * zeroth, factor * base,
+                       edges_texture, regularization_texture, edges_structure, regularization_structure,
+                       regularization_zeroth, edges_base, regularization_base,
+                       data->respect_bokeh, data->radius, (s == scales - 1));
   }
 
 error:
+  if(temp) dt_free_align(temp);
   if(temp1) dt_free_align(temp1);
   if(LF_even) dt_free_align(LF_even);
   if(LF_odd) dt_free_align(LF_odd);
-  if(HF_RGB) dt_free_align(HF_RGB);
   return success;
 }
 
@@ -924,7 +996,8 @@ void process(dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const void *c
   const size_t ch = 4;
   float *restrict in = DT_IS_ALIGNED((float *const restrict)ivoid);
   float *const restrict out = DT_IS_ALIGNED((float *const restrict)ovoid);
-  float *restrict temp = NULL;
+  float *const restrict temp1 = dt_alloc_align_float(roi_out->width * roi_out->height * ch);
+  float *const restrict temp2 = dt_alloc_align_float(roi_out->width * roi_out->height * ch);
   uint8_t *restrict mask = NULL;
 
   if(data->threshold > 0.f)
@@ -937,8 +1010,6 @@ void process(dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const void *c
     build_mask(in, mask, data->threshold, roi_out->width, roi_out->height, ch);
 
     // init the inpainting area with blur
-    temp = dt_alloc_align_float(roi_out->width * roi_out->height * ch);
-
     float RGBmax[4], RGBmin[4];
     for(int k = 0; k < 4; k++)
     {
@@ -948,7 +1019,7 @@ void process(dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const void *c
 
     dt_gaussian_t *g = dt_gaussian_init(roi_out->width, roi_out->height, ch, RGBmax, RGBmin, blur, 0);
     if(!g) return;
-    dt_gaussian_blur_4c(g, in, temp);
+    dt_gaussian_blur_4c(g, in, temp1);
     dt_gaussian_free(g);
 
     // add noise and restore valid parts where mask = FALSE
@@ -956,7 +1027,7 @@ void process(dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const void *c
 
     #ifdef _OPENMP
     #pragma omp parallel for default(none) \
-    dt_omp_firstprivate(in, temp, mask, roi_out, ch, noise) \
+    dt_omp_firstprivate(in, temp1, mask, roi_out, ch, noise) \
     schedule(dynamic)
     #endif
     for(size_t k = 0; k < roi_out->height * roi_out->width * ch; k += ch)
@@ -971,21 +1042,45 @@ void process(dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const void *c
         xoshiro128plus(state);
         xoshiro128plus(state);
 
-        for(size_t c = 0; c < 4; c++) temp[k + c] = gaussian_noise(temp[k + c], noise, i % 2 || j % 2, state);
+        for(size_t c = 0; c < 4; c++) temp1[k + c] = gaussian_noise(temp1[k + c], noise, i % 2 || j % 2, state);
       }
       else
       {
-        for(size_t c = 0; c < 4; c++) temp[k + c] = in[k + c];
+        for(size_t c = 0; c < 4; c++) temp1[k + c] = in[k + c];
       }
     }
 
-    in = temp;
+    in = temp1;
   }
 
-  reconstruct_highlights(in, out, mask, ch, data, piece, roi_in, roi_out);
+  float *restrict temp_in = NULL;
+  float *restrict temp_out = NULL;
+
+  for(int it = 0; it < data->iterations; it++)
+  {
+    if(it == 0)
+    {
+      temp_in = in;
+      temp_out = temp2;
+    }
+    else if(it % 2 == 0)
+    {
+      temp_in = temp1;
+      temp_out = temp2;
+    }
+    else
+    {
+      temp_in = temp2;
+      temp_out = temp1;
+    }
+
+    if(it == data->iterations - 1) temp_out = out;
+    reconstruct_highlights(temp_in, temp_out, mask, ch, data, piece, roi_in, roi_out);
+  }
 
   if(mask) dt_free_align(mask);
-  if(temp) dt_free_align(temp);
+  if(temp1) dt_free_align(temp1);
+  if(temp2) dt_free_align(temp2);
 }
 
 
@@ -1036,6 +1131,7 @@ void gui_init(struct dt_iop_module_t *self)
 
   g->base = dt_bauhaus_slider_from_params(self, "base");
   dt_bauhaus_slider_set_factor(g->base, 100.0f);
+  dt_bauhaus_slider_set_digits(g->base, 4);
   dt_bauhaus_slider_set_format(g->base, "%.2f %%");
   gtk_widget_set_tooltip_text(g->base, _("smoothing or sharpening of smooth details (gradients).\n"
                                         "positive values diffuse and blur.\n"
@@ -1043,11 +1139,13 @@ void gui_init(struct dt_iop_module_t *self)
                                         "zero does nothing."));
 
   g->edges_base = dt_bauhaus_slider_from_params(self, "edges_base");
+  dt_bauhaus_slider_set_digits(g->edges_base, 4);
   gtk_widget_set_tooltip_text(g->edges_base, _("anisotropy of the diffusion.\n"
                                               "high values force the diffusion to be 1D and perpendicular to edges.\n"
                                               "low values allow the diffusion to be 2D and uniform, like a classic blur."));
 
   g->regularization_base = dt_bauhaus_slider_from_params(self, "regularization_base");
+  dt_bauhaus_slider_set_digits(g->regularization_base, 4);
   gtk_widget_set_tooltip_text(g->regularization_base, _("normalization of the diffusion.\n"
                                                         "high values dampen high-magnitude gradients to avoid overshooting at sharp edges.\n"
                                                         "low values relay the dampening and allow more and more overshooting."));
@@ -1055,6 +1153,7 @@ void gui_init(struct dt_iop_module_t *self)
   gtk_box_pack_start(GTK_BOX(self->widget), dt_ui_section_label_new(_("second order diffusion (wavelets details)")), FALSE, FALSE, 0);
 
   g->zeroth = dt_bauhaus_slider_from_params(self, "zeroth");
+  dt_bauhaus_slider_set_digits(g->zeroth, 4);
   dt_bauhaus_slider_set_factor(g->zeroth, 100.0f);
   dt_bauhaus_slider_set_format(g->zeroth, "%.2f %%");
 
@@ -1063,6 +1162,7 @@ void gui_init(struct dt_iop_module_t *self)
   gtk_box_pack_start(GTK_BOX(self->widget), dt_ui_section_label_new(_("third order diffusion (smoothness)")), FALSE, FALSE, 0);
 
   g->structure = dt_bauhaus_slider_from_params(self, "structure");
+  dt_bauhaus_slider_set_digits(g->structure, 4);
   dt_bauhaus_slider_set_factor(g->structure, 100.0f);
   dt_bauhaus_slider_set_format(g->structure, "%.2f %%");
   gtk_widget_set_tooltip_text(g->structure, _("smoothing or sharpening of sharp details.\n"
@@ -1071,11 +1171,13 @@ void gui_init(struct dt_iop_module_t *self)
                                               "zero does nothing."));
 
   g->edges_structure = dt_bauhaus_slider_from_params(self, "edges_structure");
+  dt_bauhaus_slider_set_digits(g->edges_structure, 4);
   gtk_widget_set_tooltip_text(g->edges_structure, _("anisotropy of the diffusion.\n"
                                                     "high values force the diffusion to be 1D and perpendicular to edges.\n"
                                                     "low values allow the diffusion to be 2D and uniform, like a classic blur."));
 
   g->regularization_structure = dt_bauhaus_slider_from_params(self, "regularization_structure");
+  dt_bauhaus_slider_set_digits(g->regularization_structure, 4);
   gtk_widget_set_tooltip_text(g->regularization_structure, _("normalization of the diffusion.\n"
                                                              "high values dampen high-magnitude gradients to avoid overshooting at sharp edges.\n"
                                                              "low values relay the dampening and allow more and more overshooting."));
@@ -1083,6 +1185,7 @@ void gui_init(struct dt_iop_module_t *self)
   gtk_box_pack_start(GTK_BOX(self->widget), dt_ui_section_label_new(_("non-local fourth order diffusion")), FALSE, FALSE, 0);
 
   g->texture = dt_bauhaus_slider_from_params(self, "texture");
+  dt_bauhaus_slider_set_digits(g->texture, 4);
   dt_bauhaus_slider_set_factor(g->texture, 100.0f);
   dt_bauhaus_slider_set_format(g->texture, "%.2f %%");
   gtk_widget_set_tooltip_text(g->texture, _("smoothing or sharpening of sharp details (gradients).\n"
@@ -1091,11 +1194,13 @@ void gui_init(struct dt_iop_module_t *self)
                                             "zero does nothing."));
 
   g->edges_texture = dt_bauhaus_slider_from_params(self, "edges_texture");
+  dt_bauhaus_slider_set_digits(g->edges_texture, 4);
   gtk_widget_set_tooltip_text(g->edges_texture, _("anisotropy of the diffusion.\n"
                                                   "high values force the diffusion to be 1D and perpendicular to edges.\n"
                                                   "low values allow the diffusion to be 2D and uniform, like a classic blur."));
 
   g->regularization_texture = dt_bauhaus_slider_from_params(self, "regularization_texture");
+  dt_bauhaus_slider_set_digits(g->regularization_texture, 4);
   gtk_widget_set_tooltip_text(g->regularization_texture, _("normalization of the diffusion.\n"
                                                           "high values dampen high-magnitude gradients to avoid overshooting at sharp edges.\n"
                                                           "low values relay the dampening and allow more and more overshooting."));
