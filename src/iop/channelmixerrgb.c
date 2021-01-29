@@ -2333,6 +2333,14 @@ static void safety_changed_callback(GtkWidget *widget, gpointer user_data)
 }
 
 
+static void normalize_changed_callback(GtkToggleButton *widget, gpointer user_data)
+{
+  if(darktable.gui->reset) return;
+  gboolean normalize = gtk_toggle_button_get_active(widget);
+  dt_conf_set_int("darkroom/modules/channelmixerrgb/normalize", normalize);
+}
+
+
 static void start_profiling_callback(GtkWidget *togglebutton, dt_iop_module_t *self)
 {
   if(darktable.gui->reset) return;
@@ -3241,7 +3249,8 @@ void gui_update(struct dt_iop_module_t *self)
     g->safety_margin = dt_conf_get_float("darkroom/modules/channelmixerrgb/safety");
   dt_bauhaus_slider_set_soft(g->safety, g->safety_margin);
 
-  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g->normalize), TRUE);
+  const int k = dt_conf_get_int("darkroom/modules/channelmixerrgb/normalize");
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g->normalize), k);
 
   dt_iop_gui_leave_critical_section(self);
 
@@ -3683,6 +3692,7 @@ void gui_init(struct dt_iop_module_t *self)
   gtk_widget_set_tooltip_text(g->normalize, _("discard the patch luminance from the calibration.\n"
                                               "useful when the chart is not lit by an even lighting,\n"
                                               "in which case luminance discrepancies would make color matching inaccurate." ));
+  g_signal_connect(G_OBJECT(g->normalize), "toggled", G_CALLBACK(normalize_changed_callback), (gpointer)self);
   gtk_box_pack_start(GTK_BOX(g->collapsible), GTK_WIDGET(g->normalize), TRUE, TRUE, 0);
 
   g->safety = dt_bauhaus_slider_new_with_range_and_feedback(self, 0., 1., 0.1, 0.5, 3, TRUE);
