@@ -155,7 +155,7 @@ typedef struct dt_iop_channelmixer_rgb_gui_data_t
   GtkWidget *start_profiling;
   gboolean is_profiling_started;
   GtkWidget *collapsible;
-  GtkWidget *checkers_list, *optimize, *safety, *normalize, *label_delta_E, *button_profile, *button_validate, *button_commit;
+  GtkWidget *checkers_list, *optimize, *safety, *label_delta_E, *button_profile, *button_validate, *button_commit;
 
   float *delta_E_in;
 
@@ -1161,7 +1161,7 @@ static void check_if_close_to_daylight(const float x, const float y, float *temp
 #define DEG_TO_RAD(x) (x * M_PI / 180.f)
 #define RAD_TO_DEG(x) (x * 180.f / M_PI)
 
-static inline void compute_patches_delta_E(const float *const restrict patches, const float *const restrict exposure,
+static inline void compute_patches_delta_E(const float *const restrict patches,
                                            const dt_color_checker_t *const checker,
                                            float *const restrict delta_E, float *const restrict avg_delta_E, float *const restrict max_delta_E)
 {
@@ -1177,7 +1177,7 @@ static inline void compute_patches_delta_E(const float *const restrict patches, 
     float XYZ_test[4];
 
     // If exposure was normalized, denormalized it before
-    for(size_t c = 0; c < 4; c++) XYZ_test[c] = (exposure) ? patches[k * 4 + c] * exposure[k] : patches[k * 4 + c];
+    for(size_t c = 0; c < 4; c++) XYZ_test[c] = patches[k * 4 + c];
     dt_XYZ_to_Lab(XYZ_test, Lab_test);
 
     const float *const restrict Lab_ref = checker->values[k].Lab;
@@ -1296,8 +1296,7 @@ typedef struct {
 
 static const extraction_result_t _extract_patches(const float *const restrict in, const dt_iop_roi_t *const roi_in,
                                                   dt_iop_channelmixer_rgb_gui_data_t *g, const float RGB_to_XYZ[3][4],
-                                                  float *const restrict patches, float *const restrict patches_luminance,
-                                                  gboolean normalize)
+                                                  float *const restrict patches)
 {
   const size_t width = roi_in->width;
   const size_t height = roi_in->height;
@@ -1393,29 +1392,16 @@ static const extraction_result_t _extract_patches(const float *const restrict in
   for(size_t c = 0; c < 3; c++) black += XYZ_black_test[c] * exposure - XYZ_black_ref[c];
   black /= 3.f;
 
-  for(size_t k = 0; k < g->checker->patches; k++)
-  {
-    // compensate global exposure
-    float XYZ[3];
-    for(size_t c = 0; c < 3; c++) XYZ[c] = exposure * patches[k * 4 + c] - black;
-
-    float DT_ALIGNED_PIXEL XYZ_ref[4];
-    dt_Lab_to_XYZ(g->checker->values[k].Lab, XYZ_ref);
-
-    // normalize patch exposure - if shooting close to the light source, the exposure might not be uniform over the surface
-    // we don't want the color calibration to try fighting exposure discrepancies, so pretend the exposure is spot-on.
-    float coeff = 0.f;
-    for(size_t c = 0; c < 3; c++) coeff += XYZ_ref[c] / XYZ[c];
-    coeff /= 3.f;
-
-    for(size_t c = 0; c < 3; c++) patches[k * 4 + c] = (normalize) ? XYZ[c] * coeff : XYZ[c];
-    if(patches_luminance != NULL) patches_luminance[k] = (normalize) ? 1.f / coeff : 1.f;
-  }
-
   // the exposure module applies output  = (input - offset) * exposure
   // but we compute output = input * exposure - offset
   // so, rescale offset to adapt our offset to exposure module GUI
   black /= exposure;
+
+  for(size_t k = 0; k < g->checker->patches; k++)
+  {
+    // compensate global exposure
+    for(size_t c = 0; c < 3; c++) patches[k * 4 + c] *= exposure;
+  }
 
   const extraction_result_t result = { black, exposure };
   return result;
@@ -1426,19 +1412,16 @@ void extract_color_checker(const float *const restrict in, float *const restrict
                            const float RGB_to_XYZ[3][4], const float XYZ_to_RGB[3][4], const dt_adaptation_t kind)
 {
   float *const restrict patches = dt_alloc_sse_ps(g->checker->patches * 4);
-  float *const restrict patches_luminance = dt_alloc_sse_ps(g->checker->patches);
 
   dt_simd_memcpy(in, out, (size_t)roi_in->width * roi_in->height * 4);
 
-  gboolean normalize = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g->normalize));
   extraction_result_t extraction_result = _extract_patches(out, roi_in, g, RGB_to_XYZ,
-                                                           patches, patches_luminance,
-                                                           normalize);
+                                                           patches);
 
   // Compute the delta E
   float pre_wb_delta_E = 0.f;
   float pre_wb_max_delta_E = 0.f;
-  compute_patches_delta_E(patches, patches_luminance, g->checker, g->delta_E_in, &pre_wb_delta_E, &pre_wb_max_delta_E);
+  compute_patches_delta_E(patches, g->checker, g->delta_E_in, &pre_wb_delta_E, &pre_wb_max_delta_E);
 
   /* find the scene illuminant */
 
@@ -1541,7 +1524,7 @@ void extract_color_checker(const float *const restrict in, float *const restrict
   // Compute the delta E
   float post_wb_delta_E = 0.f;
   float post_wb_max_delta_E = 0.f;
-  compute_patches_delta_E(patches, patches_luminance, g->checker, g->delta_E_in, &post_wb_delta_E, &post_wb_max_delta_E);
+  compute_patches_delta_E(patches, g->checker, g->delta_E_in, &post_wb_delta_E, &post_wb_max_delta_E);
 
   /* Compute the matrix of mix */
   double *const restrict Y = dt_alloc_align(64, g->checker->patches * 3 * sizeof(double));
@@ -1646,7 +1629,7 @@ void extract_color_checker(const float *const restrict in, float *const restrict
     float temp[4] = { 0.f };
 
     // Restore the original exposure of the patch
-    for(size_t c = 0; c < 3; c++) temp[c] = sample[c] * patches_luminance[k];
+    for(size_t c = 0; c < 3; c++) temp[c] = sample[c];
 
     convert_any_XYZ_to_LMS(temp, LMS_test, kind);
       dot_product(LMS_test, g->mix, temp);
@@ -1656,7 +1639,7 @@ void extract_color_checker(const float *const restrict in, float *const restrict
   // Compute the delta E
   float post_mix_delta_E = 0.f;
   float post_mix_max_delta_E = 0.f;
-  compute_patches_delta_E(patches, NULL, g->checker, g->delta_E_in, &post_mix_delta_E, &post_mix_max_delta_E);
+  compute_patches_delta_E(patches, g->checker, g->delta_E_in, &post_mix_delta_E, &post_mix_max_delta_E);
 
   // get the temperature
   float temperature;
@@ -1698,15 +1681,15 @@ void extract_color_checker(const float *const restrict in, float *const restrict
                           "%+.4f \t%+.4f \t%+.4f\n"
                           "%+.4f \t%+.4f \t%+.4f</tt>\n\n"
                           "<b>Normalization values</b>\n"
-                          "black offset : \t%+.4f\n"
-                          "exposure compensation : \t%+.2f EV"),
+                          "exposure compensation : \t%+.2f EV\n"
+                          "black offset : \t%+.4f"
+                          ),
                         diagnostic, pre_wb_delta_E, pre_wb_max_delta_E, post_wb_delta_E, post_wb_max_delta_E,
                         post_mix_delta_E, post_mix_max_delta_E, temperature, string, g->mix[0][0], g->mix[0][1],
                         g->mix[0][2], g->mix[1][0], g->mix[1][1], g->mix[1][2], g->mix[2][0], g->mix[2][1],
-                        g->mix[2][2], extraction_result.black, log2f(extraction_result.exposure));
+                        g->mix[2][2], log2f(extraction_result.exposure), extraction_result.black);
 
   dt_free_align(patches);
-  dt_free_align(patches_luminance);
 }
 
 void validate_color_checker(const float *const restrict in,
@@ -1714,12 +1697,12 @@ void validate_color_checker(const float *const restrict in,
                             const float RGB_to_XYZ[3][4], const float XYZ_to_RGB[3][4])
 {
   float *const restrict patches = dt_alloc_sse_ps(4 * g->checker->patches);
-  extraction_result_t extraction_result = _extract_patches(in, roi_in, g, RGB_to_XYZ, patches, NULL, FALSE);
+  extraction_result_t extraction_result = _extract_patches(in, roi_in, g, RGB_to_XYZ, patches);
 
   // Compute the delta E
   float pre_wb_delta_E = 0.f;
   float pre_wb_max_delta_E = 0.f;
-  compute_patches_delta_E(patches, NULL, g->checker, g->delta_E_in, &pre_wb_delta_E, &pre_wb_max_delta_E);
+  compute_patches_delta_E(patches, g->checker, g->delta_E_in, &pre_wb_delta_E, &pre_wb_max_delta_E);
 
   gchar *diagnostic;
   if(pre_wb_delta_E <= 1.2f)
@@ -1736,10 +1719,10 @@ void validate_color_checker(const float *const restrict in,
   g->delta_E_label_text = g_strdup_printf(_("\n<b>Profile quality report : %s</b>\n"
                                             "output ΔE : \tavg. %.2f ; \tmax. %.2f\n\n"
                                             "<b>Normalization values</b>\n"
-                                            "black offset : \t%+.4f\n"
-                                            "exposure compensation : \t%+.2f EV"),
-                                          diagnostic, pre_wb_delta_E, pre_wb_max_delta_E, extraction_result.black,
-                                          log2f(extraction_result.exposure));
+                                            "exposure compensation : \t%+.2f EV\n"
+                                            "black offset : \t%+.4f"),
+                                          diagnostic, pre_wb_delta_E, pre_wb_max_delta_E, log2f(extraction_result.exposure),
+                                          extraction_result.black);
 
   dt_free_align(patches);
 }
@@ -2352,14 +2335,6 @@ static void safety_changed_callback(GtkWidget *widget, gpointer user_data)
 
   dt_conf_set_float("darkroom/modules/channelmixerrgb/safety", g->safety_margin);
   dt_control_queue_redraw_center();
-}
-
-
-static void normalize_changed_callback(GtkToggleButton *widget, gpointer user_data)
-{
-  if(darktable.gui->reset) return;
-  gboolean normalize = gtk_toggle_button_get_active(widget);
-  dt_conf_set_int("darkroom/modules/channelmixerrgb/normalize", normalize);
 }
 
 
@@ -3271,9 +3246,6 @@ void gui_update(struct dt_iop_module_t *self)
     g->safety_margin = dt_conf_get_float("darkroom/modules/channelmixerrgb/safety");
   dt_bauhaus_slider_set_soft(g->safety, g->safety_margin);
 
-  const int k = dt_conf_get_int("darkroom/modules/channelmixerrgb/normalize");
-  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g->normalize), k);
-
   dt_iop_gui_leave_critical_section(self);
 
   g->is_profiling_started = FALSE;
@@ -3709,13 +3681,6 @@ void gui_init(struct dt_iop_module_t *self)
                                              "none is a trade-off between both\n"
                                              "the others are special behaviours to protect some hues"));
   gtk_box_pack_start(GTK_BOX(g->collapsible), GTK_WIDGET(g->optimize), TRUE, TRUE, 0);
-
-  g->normalize = gtk_check_button_new_with_label(_("normalize exposure"));
-  gtk_widget_set_tooltip_text(g->normalize, _("discard the patch luminance from the calibration.\n"
-                                              "useful when the chart is not lit by an even lighting,\n"
-                                              "in which case luminance discrepancies would make color matching inaccurate." ));
-  g_signal_connect(G_OBJECT(g->normalize), "toggled", G_CALLBACK(normalize_changed_callback), (gpointer)self);
-  gtk_box_pack_start(GTK_BOX(g->collapsible), GTK_WIDGET(g->normalize), TRUE, TRUE, 0);
 
   g->safety = dt_bauhaus_slider_new_with_range_and_feedback(self, 0., 1., 0.1, 0.5, 3, TRUE);
   dt_bauhaus_widget_set_label(g->safety, NULL, _("patch scale"));
