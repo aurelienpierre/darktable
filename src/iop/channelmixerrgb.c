@@ -1286,7 +1286,7 @@ static inline void compute_patches_delta_E(const float *const restrict patches, 
         delta_hue += 2.f * M_PI;                                  \
       else if(fabsf(delta_hue) > M_PI && (hue > ref_hue))         \
         delta_hue -= 2.f * M_PI;                                  \
-      w = expf(-sqf(delta_hue) / 2.f);
+      w = sqrtf(expf(-sqf(delta_hue) / 2.f));
 
 
 typedef struct {
