@@ -1399,13 +1399,17 @@ static const extraction_result_t _extract_patches(const float *const restrict in
     float XYZ[3];
     for(size_t c = 0; c < 3; c++) XYZ[c] = exposure * patches[k * 4 + c] - black;
 
-    // normalize patch exposure - if shooting close to the light source, the exposure might not be uniform over the surface
-    // we don't want the color calibration to try fighting exposure discrepancies, so pretend the exposure is spot-on.
-    const float Y = XYZ[1];
     float DT_ALIGNED_PIXEL XYZ_ref[4];
     dt_Lab_to_XYZ(g->checker->values[k].Lab, XYZ_ref);
-    for(size_t c = 0; c < 3; c++) patches[k * 4 + c] = (normalize) ? XYZ[c] * XYZ_ref[1] / Y : XYZ[c];
-    if(patches_luminance != NULL) patches_luminance[k] = (normalize) ? Y / XYZ_ref[1] : 1.f;
+
+    // normalize patch exposure - if shooting close to the light source, the exposure might not be uniform over the surface
+    // we don't want the color calibration to try fighting exposure discrepancies, so pretend the exposure is spot-on.
+    float coeff = 0.f;
+    for(size_t c = 0; c < 3; c++) coeff += XYZ_ref[c] / XYZ[c];
+    coeff /= 3.f;
+
+    for(size_t c = 0; c < 3; c++) patches[k * 4 + c] = (normalize) ? XYZ[c] * coeff : XYZ[c];
+    if(patches_luminance != NULL) patches_luminance[k] = (normalize) ? 1.f / coeff : 1.f;
   }
 
   // the exposure module applies output  = (input - offset) * exposure
