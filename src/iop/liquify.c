@@ -2871,7 +2871,15 @@ int mouse_moved(struct dt_iop_module_t *module,
       start_drag(g, g->last_hit.layer, g->last_hit.elem);
       // nothing more to do, we will refresh on the next call anyway
       // this makes the initial move of a node a bit more fluid.
+      handled = TRUE;
       goto done;
+    }
+
+    if(g->last_hit.elem)
+    {
+      // an item is selected, so this mouvement is handled and must
+      // not trigger any panning.
+      handled = TRUE;
     }
   }
   else // we are dragging
@@ -3562,6 +3570,8 @@ static gboolean btn_make_radio_callback(GtkToggleButton *btn, GdkEventButton *ev
     {
       _start_new_shape(module);
     }
+
+    if(btn) dt_iop_request_focus(module);
   }
   else
   {
@@ -3569,7 +3579,6 @@ static gboolean btn_make_radio_callback(GtkToggleButton *btn, GdkEventButton *ev
   }
 
   sync_pipe(module, FALSE);
-  dt_iop_request_focus(module);
 
   return TRUE;
 }
@@ -3611,19 +3620,19 @@ void gui_init(dt_iop_module_t *self)
   hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   gtk_box_pack_start(GTK_BOX(self->widget), hbox, TRUE, TRUE, 0);
 
-  g->btn_node_tool = GTK_TOGGLE_BUTTON(dt_iop_togglebutton_new(self, N_("edit, add and delete nodes"), NULL,
+  g->btn_node_tool = GTK_TOGGLE_BUTTON(dt_iop_togglebutton_new(self, NULL, N_("edit, add and delete nodes"), NULL,
                                        G_CALLBACK(btn_make_radio_callback), TRUE, 0, 0,
                                        _liquify_cairo_paint_node_tool, hbox));
 
-  g->btn_curve_tool = GTK_TOGGLE_BUTTON(dt_iop_togglebutton_new(self, N_("draw curves"), N_("draw multiple curves"),
+  g->btn_curve_tool = GTK_TOGGLE_BUTTON(dt_iop_togglebutton_new(self, N_("shapes"), N_("draw curves"), N_("draw multiple curves"),
                                         G_CALLBACK(btn_make_radio_callback), TRUE, 0, 0,
                                         _liquify_cairo_paint_curve_tool, hbox));
 
-  g->btn_line_tool = GTK_TOGGLE_BUTTON(dt_iop_togglebutton_new(self, N_("draw lines"), N_("draw multiple lines"),
+  g->btn_line_tool = GTK_TOGGLE_BUTTON(dt_iop_togglebutton_new(self, N_("shapes"), N_("draw lines"), N_("draw multiple lines"),
                                        G_CALLBACK(btn_make_radio_callback), TRUE, 0, 0,
                                        _liquify_cairo_paint_line_tool, hbox));
 
-  g->btn_point_tool = GTK_TOGGLE_BUTTON(dt_iop_togglebutton_new(self, N_("draw points"), N_("draw multiple points"),
+  g->btn_point_tool = GTK_TOGGLE_BUTTON(dt_iop_togglebutton_new(self, N_("shapes"), N_("draw points"), N_("draw multiple points"),
                                          G_CALLBACK(btn_make_radio_callback), TRUE, 0, 0,
                                          _liquify_cairo_paint_point_tool, hbox));
 

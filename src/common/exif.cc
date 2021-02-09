@@ -485,13 +485,17 @@ static bool _exif_decode_xmp_data(dt_image_t *img, Exiv2::XmpData &xmpData, int 
       }
     }
 
-    GList *tags = NULL;
-    // preserve dt tags which are not saved in xmp file
-    if(!exif_read) dt_tag_set_tags(tags, imgs, TRUE, TRUE, FALSE);
-    if(FIND_XMP_TAG("Xmp.lr.hierarchicalSubject"))
-      _exif_import_tags(img, pos);
-    else if(FIND_XMP_TAG("Xmp.dc.subject"))
-      _exif_import_tags(img, pos);
+    if(dt_conf_get_bool("write_sidecar_files") ||
+       dt_conf_get_bool("ui_last/import_last_tags_imported"))
+    {
+      GList *tags = NULL;
+      // preserve dt tags which are not saved in xmp file
+      if(!exif_read) dt_tag_set_tags(tags, imgs, TRUE, TRUE, FALSE);
+      if(FIND_XMP_TAG("Xmp.lr.hierarchicalSubject"))
+        _exif_import_tags(img, pos);
+      else if(FIND_XMP_TAG("Xmp.dc.subject"))
+        _exif_import_tags(img, pos);
+    }
 
     /* read gps location */
     if(FIND_XMP_TAG("Xmp.exif.GPSLatitude"))
@@ -3581,20 +3585,23 @@ static void _exif_xmp_read_data(Exiv2::XmpData &xmpData, const int imgid)
   dt_history_hash_read(imgid, &hash);
   if(hash.basic)
   {
-    xmpData["Xmp.darktable.history_basic_hash"]
-            = dt_exif_xmp_encode(hash.basic, hash.basic_len, NULL);
+    char* value = dt_exif_xmp_encode(hash.basic, hash.basic_len, NULL);
+    xmpData["Xmp.darktable.history_basic_hash"] = value;
+    free(value);
     g_free(hash.basic);
   }
   if(hash.auto_apply)
   {
-    xmpData["Xmp.darktable.history_auto_hash"]
-            = dt_exif_xmp_encode(hash.auto_apply, hash.auto_apply_len, NULL);
+    char* value = dt_exif_xmp_encode(hash.auto_apply, hash.auto_apply_len, NULL);
+    xmpData["Xmp.darktable.history_auto_hash"] = value;
+    free(value);
     g_free(hash.auto_apply);
   }
   if(hash.current)
   {
-    xmpData["Xmp.darktable.history_current_hash"]
-            = dt_exif_xmp_encode(hash.current, hash.current_len, NULL);
+    char* value = dt_exif_xmp_encode(hash.current, hash.current_len, NULL);
+    xmpData["Xmp.darktable.history_current_hash"] = value;
+    free(value);
     g_free(hash.current);
   }
 }

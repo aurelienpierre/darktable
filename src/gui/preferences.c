@@ -189,6 +189,14 @@ static void load_themes(void)
   load_themes_dir(configdir);
 }
 
+static void reload_ui_last_theme(void)
+{
+  gchar *theme = dt_conf_get_string("ui_last/theme");
+  dt_gui_load_theme(theme);
+  g_free(theme);
+  dt_bauhaus_load_theme();
+}
+
 static void theme_callback(GtkWidget *widget, gpointer user_data)
 {
   const int selected = gtk_combo_box_get_active(GTK_COMBO_BOX(widget));
@@ -202,15 +210,13 @@ static void theme_callback(GtkWidget *widget, gpointer user_data)
 static void usercss_callback(GtkWidget *widget, gpointer user_data)
 {
   dt_conf_set_bool("themes/usercss", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget)));
-  dt_gui_load_theme(dt_conf_get_string("ui_last/theme"));
-  dt_bauhaus_load_theme();
+  reload_ui_last_theme();
 }
 
 static void font_size_changed_callback(GtkWidget *widget, gpointer user_data)
 {
   dt_conf_set_float("font_size", gtk_spin_button_get_value(GTK_SPIN_BUTTON(widget)));
-  dt_gui_load_theme(dt_conf_get_string("ui_last/theme"));
-  dt_bauhaus_load_theme();
+  reload_ui_last_theme();
 }
 
 static void use_performance_callback(GtkWidget *widget, gpointer user_data)
@@ -237,8 +243,7 @@ static void use_sys_font_callback(GtkWidget *widget, gpointer user_data)
   else
     gtk_widget_set_state_flags(GTK_WIDGET(user_data), GTK_STATE_FLAG_NORMAL, TRUE);
 
-  dt_gui_load_theme(dt_conf_get_string("ui_last/theme"));
-  dt_bauhaus_load_theme();
+  reload_ui_last_theme();
 }
 
 static void save_usercss(GtkTextBuffer *buffer)
@@ -274,8 +279,7 @@ static void save_usercss_callback(GtkWidget *widget, gpointer user_data)
   if(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(tw->apply_toggle)))
   {
     //reload the theme
-    dt_gui_load_theme(dt_conf_get_string("ui_last/theme"));
-    dt_bauhaus_load_theme();
+    reload_ui_last_theme();
   }
   else
   {
@@ -488,12 +492,13 @@ static void init_tab_general(GtkWidget *dialog, GtkWidget *stack, dt_gui_themetw
   gtk_container_add(GTK_CONTAINER(scroll), tw->css_text_view);
   gtk_box_pack_start(GTK_BOX(usercssbox), scroll, TRUE, TRUE, 0);
 
-  tw->save_button = gtk_button_new_with_label(C_("usercss", "save and apply"));
+  tw->save_button = gtk_button_new_with_label(C_("usercss", "save CSS and apply"));
   g_signal_connect(G_OBJECT(tw->save_button), "clicked", G_CALLBACK(save_usercss_callback), tw);
   g_signal_connect(G_OBJECT(dialog), "response", G_CALLBACK(usercss_dialog_callback), tw);
   GtkWidget *hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   gtk_box_pack_end(GTK_BOX(hbox), tw->save_button, FALSE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(usercssbox), hbox, FALSE, FALSE, 0);
+  gtk_widget_set_tooltip_text(tw->save_button, _("click to save and apply the CSS tweaks entered in this editor"));
 
   //set textarea text from file or default
   char usercsspath[PATH_MAX] = { 0 }, configdir[PATH_MAX] = { 0 };
