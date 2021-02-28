@@ -267,6 +267,11 @@ int dt_film_import(const char *dirname)
     free(film);
     return 0;
   }
+
+  // deselect all
+  DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db), "DELETE FROM main.selected_images", NULL, NULL, NULL);
+
+  // launch import job
   dt_control_add_job(darktable.control, DT_JOB_QUEUE_USER_BG, dt_film_import1_create(film));
 
   return filmid;
@@ -361,7 +366,7 @@ void dt_film_remove_empty()
 
     if(dt_util_is_dir_empty(folder))
     {
-      if(ask_before_rmdir) empty_dirs = g_list_append(empty_dirs, g_strdup(folder));
+      if(ask_before_rmdir) empty_dirs = g_list_prepend(empty_dirs, g_strdup(folder));
       else rmdir(folder);
     }
   }
@@ -370,7 +375,7 @@ void dt_film_remove_empty()
 
   // dispatch asking for deletion (and subsequent deletion) to the gui thread
   if(empty_dirs)
-    g_idle_add(ask_and_delete, empty_dirs);
+    g_idle_add(ask_and_delete, g_list_reverse(empty_dirs));
 }
 
 gboolean dt_film_is_empty(const int id)
@@ -432,7 +437,7 @@ void dt_film_remove(const int id)
   }
   sqlite3_finalize(stmt);
 
-  // due to foreign keys, all images with references to the film roll are deleted, 
+  // due to foreign keys, all images with references to the film roll are deleted,
   // and likewise all entries with references to those images
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                               "DELETE FROM main.film_rolls WHERE id = ?1", -1,
@@ -456,10 +461,10 @@ GList *dt_film_get_image_ids(const int filmid)
   while(sqlite3_step(stmt) == SQLITE_ROW)
   {
     const int id = sqlite3_column_int(stmt, 0);
-    result = g_list_append(result, GINT_TO_POINTER(id));
+    result = g_list_prepend(result, GINT_TO_POINTER(id));
   }
   sqlite3_finalize(stmt);
-  return result;
+  return g_list_reverse(result);  // list was built in reverse order, so un-reverse it
 }
 
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh

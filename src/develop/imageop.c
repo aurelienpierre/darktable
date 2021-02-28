@@ -1350,8 +1350,16 @@ void dt_iop_set_module_trouble_message(dt_iop_module_t *const module,
                                        const char* const trouble_tooltip,
                                        const char *const stderr_message)
 {
-  DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_TROUBLE_MESSAGE,
-                                module, trouble_msg, trouble_tooltip, stderr_message);
+  //  first stderr message if any
+  if(stderr_message)
+  {
+    const char *name = module ? module->name() : "?";
+    fprintf(stderr, "[%s] %s\n", name, stderr_message ? stderr_message : trouble_msg);
+  }
+
+  if(!dt_iop_is_hidden(module) && module->gui_data)
+    DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_TROUBLE_MESSAGE,
+                                  module, trouble_msg, trouble_tooltip);
 }
 
 static void _iop_gui_update_label(dt_iop_module_t *module)
@@ -2267,7 +2275,7 @@ static gboolean _iop_plugin_header_button_press(GtkWidget *w, GdkEventButton *e,
     else if(e->state & GDK_CONTROL_MASK)
     {
       _iop_gui_rename_module(module);
-      return FALSE;
+      return TRUE;
     }
     else
     {
@@ -2999,12 +3007,10 @@ void dt_iop_connect_accels_multi(dt_iop_module_so_t *module)
     - prefer unmasked instances (when selected, after applying the above rules, if instances of the module are unmasked, masked instances will be ignored)
     - selection order (after applying the above rules, apply the shortcut to the first or last instance remaining)
   */
-  int prefer_expanded = dt_conf_get_bool("accel/prefer_expanded") ? 8 : 0;
-  int prefer_enabled = dt_conf_get_bool("accel/prefer_enabled") ? 4 : 0;
-  int prefer_unmasked = dt_conf_get_bool("accel/prefer_unmasked") ? 2 : 0;
-  gchar* select_order = dt_conf_get_string("accel/select_order");
-  int prefer_first = strcmp(select_order, "first instance") == 0 ? 1 : 0;
-  g_free(select_order);
+  const int prefer_expanded = dt_conf_get_bool("accel/prefer_expanded") ? 8 : 0;
+  const int prefer_enabled = dt_conf_get_bool("accel/prefer_enabled") ? 4 : 0;
+  const int prefer_unmasked = dt_conf_get_bool("accel/prefer_unmasked") ? 2 : 0;
+  const int prefer_first = dt_conf_is_equal("accel/select_order", "first instance") ? 1 : 0;
 
   if(darktable.develop->gui_attached)
   {

@@ -276,7 +276,8 @@ int dt_image_get_xmp_rating_from_flags(const int flags);
 /** finds all xmp duplicates for the given image in the database. */
 GList* dt_image_find_duplicates(const char* filename);
 /** imports a new image from raw/etc file and adds it to the data base and image cache. Use from threads other than lua.*/
-uint32_t dt_image_import(int32_t film_id, const char *filename, gboolean override_ignore_jpegs);
+uint32_t dt_image_import(int32_t film_id, const char *filename, gboolean override_ignore_jpegs,
+                         gboolean raise_signals);
 /** imports a new image from raw/etc file and adds it to the data base and image cache. Use from lua thread.*/
 uint32_t dt_image_import_lua(int32_t film_id, const char *filename, gboolean override_ignore_jpegs);
 /** removes the given image from the database. */
@@ -300,6 +301,9 @@ void dt_image_set_location(const int32_t imgid, const dt_image_geoloc_t *geoloc,
 /** set images location lon/lat/ele */
 void dt_image_set_locations(const GList *img, const dt_image_geoloc_t *geoloc,
                            const gboolean undo_on);
+/** set images locations lon/lat/ele */
+void dt_image_set_images_locations(const GList *imgs, const GArray *gloc,
+                                   const gboolean undo_on);
 /** get image location lon/lat/ele */
 void dt_image_get_location(const int32_t imgid, dt_image_geoloc_t *geoloc);
 /** returns TRUE if current hash is not basic nor auto_apply, FALSE otherwise. */
@@ -378,7 +382,9 @@ void dt_image_synch_all_xmp(const gchar *pathname);
 // add an offset to the exif_datetime_taken field
 void dt_image_add_time_offset(const int32_t imgid, const long int offset);
 // set datetime to exif_datetime_taken field
-void dt_image_set_datetime(const int32_t imgid, const char *datetime);
+void dt_image_set_datetime(const GList *imgs, const char *datetime, const gboolean undo_on);
+// set datetimeS to exif_datetime_taken field
+void dt_image_set_datetimes(const GList *imgs, const GArray *dtime, const gboolean undo_on);
 // return image datetime string into the given buffer (size = DT_DATETIME_LENGTH)
 void dt_image_get_datetime(const int32_t imgid, char *datetime);
 

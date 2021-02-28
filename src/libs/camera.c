@@ -188,7 +188,7 @@ static void _camera_property_value_changed(const dt_camera_t *camera, const char
   }
 }
 
-/** Invoked when accesibility of a property is changed. */
+/** Invoked when accessibility of a property is changed. */
 static void _camera_property_accessibility_changed(const dt_camera_t *camera, const char *name,
                                                    gboolean read_only, void *data)
 {
@@ -363,9 +363,9 @@ static void _expose_info_bar(dt_lib_module_t *self, cairo_t *cr, int32_t width, 
 
   // Let's cook up the middle part of infobar
   gchar center[1024] = { 0 };
-  for(guint i = 0; i < g_list_length(lib->gui.properties); i++)
+  for(GList *l = lib->gui.properties; l; l = g_list_next(l))
   {
-    dt_lib_camera_property_t *prop = (dt_lib_camera_property_t *)g_list_nth_data(lib->gui.properties, i);
+    dt_lib_camera_property_t *prop = (dt_lib_camera_property_t *)l->data;
     if(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(prop->osd)) == TRUE)
     {
       g_strlcat(center, "      ", sizeof(center));
@@ -602,8 +602,7 @@ void view_enter(struct dt_lib_module_t *self,struct dt_view_t *old_view,struct d
   GSList *options = dt_conf_all_string_entries("plugins/capture/tethering/properties");
   if(options)
   {
-    GSList *item = options;
-    do
+    for(GSList *item = options; item; item = g_slist_next(item))
     {
       dt_conf_string_entry_t *entry = (dt_conf_string_entry_t *)item->data;
 
@@ -615,7 +614,7 @@ void view_enter(struct dt_lib_module_t *self,struct dt_view_t *old_view,struct d
 
       if((prop = _lib_property_add_new(lib, entry->key, entry->value)) != NULL)
         _lib_property_add_to_gui(prop, lib);
-    } while((item = g_slist_next(item)) != NULL);
+    }
     g_slist_free_full(options, dt_conf_string_entry_free);
   }
   /* build the propertymenu  we do it now because it needs an actual camera */

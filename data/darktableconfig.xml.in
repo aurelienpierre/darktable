@@ -270,7 +270,7 @@
     <type>string</type>
     <default></default>
     <shortdescription>checksum representing the setup of opencl devices on this computer</shortdescription>
-    <longdescription>darktable re-checks the performance benchmarks of your system in case your setup has changed, which is indicated by a change versus the stored checksum in this config variable; darktable de-activates opencl if the GPU benchmark lies below the one of the CPU; inital value is the empty string; set to OFF if you want to deactivate any automatic checks and prefer to do all configurations manually.</longdescription>
+    <longdescription>darktable re-checks the performance benchmarks of your system in case your setup has changed, which is indicated by a change versus the stored checksum in this config variable; darktable de-activates opencl if the GPU benchmark lies below the one of the CPU; initial value is the empty string; set to OFF if you want to deactivate any automatic checks and prefer to do all configurations manually.</longdescription>
   </dtconfig>
   <dtconfig>
     <name>pixelpipe_synchronization_timeout</name>
@@ -376,7 +376,7 @@
     <name>opencl_memory_requirement</name>
     <type>int</type>
     <default>768</default>
-    <shortdescription>minmum amount of GPU memory (MB) required to activate OpenCL</shortdescription>
+    <shortdescription>minimum amount of GPU memory (MB) required to activate OpenCL</shortdescription>
     <longdescription>OpenCL will only be activated if your graphics card has at least this amount of memory. reducing the value will allow cards with less GPU memory to be used - but at the risk of lower system stability and occasional crashes. values below 200 will be treated as 200.</longdescription>
   </dtconfig>
   <dtconfig>
@@ -1452,7 +1452,14 @@
     <name>plugins/darkroom/tagging/visible</name>
     <type>bool</type>
     <default>true</default>
-    <shortdescription/>
+    <shortdescription>show the tagging module in the darkroom view (as well as in lighttable)</shortdescription>
+    <longdescription/>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/darkroom/export/visible</name>
+    <type>bool</type>
+    <default>true</default>
+    <shortdescription>show the export module in the darkroom view (as well as in lighttable)</shortdescription>
     <longdescription/>
   </dtconfig>
   <dtconfig prefs="security">
@@ -1572,14 +1579,55 @@
     <type>bool</type>
     <default>true</default>
     <shortdescription>ask before deleting a preset</shortdescription>
-    <longdescription>will ask for confirmation before deleting or overwritting a preset</longdescription>
+    <longdescription>will ask for confirmation before deleting or overwriting a preset</longdescription>
   </dtconfig>
-  <dtconfig>
+  <dtconfig ui="yes">
     <name>plugins/map/show_map_osd</name>
     <type>bool</type>
     <default>true</default>
-    <shortdescription/>
-    <longdescription/>
+    <shortdescription>show OSD</shortdescription>
+    <longdescription>toggle the visibility of the map overlays</longdescription>
+  </dtconfig>
+  <dtconfig ui="yes">
+    <name>plugins/map/filter_images_drawn</name>
+    <type>bool</type>
+    <default>false</default>
+    <shortdescription>filtered images</shortdescription>
+    <longdescription>when set limit the images drawn to the current filmstrip</longdescription>
+  </dtconfig>
+  <dtconfig ui="yes">
+    <name>plugins/map/max_images_drawn</name>
+    <type min="10" max="100000">int</type>
+    <default>100</default>
+    <shortdescription>max images</shortdescription>
+    <longdescription>the maximum number of image thumbnails drawn on the map</longdescription>
+  </dtconfig>
+  <dtconfig ui="yes">
+    <name>plugins/map/epsilon_factor</name>
+    <type min="10" max="100">int</type>
+    <default>25</default>
+    <shortdescription>group size factor</shortdescription>
+    <longdescription>increase or decrease the spatial size of images groups on the map. can influence the calculation time</longdescription>
+  </dtconfig>
+  <dtconfig ui="yes">
+    <name>plugins/map/min_images_per_group</name>
+    <type min="1" max="10">int</type>
+    <default>1</default>
+    <shortdescription>min images per group</shortdescription>
+    <longdescription>the minimum number of images to set up an images group. can influence the calculation time.</longdescription>
+  </dtconfig>
+  <dtconfig ui="yes">
+    <name>plugins/map/images_thumbnail</name>
+    <type>
+      <enum>
+        <option>thumbnail</option>
+        <option>count</option>
+        <option>none</option>
+      </enum>
+    </type>
+    <default>thumbnail</default>
+    <shortdescription>thumbnail display</shortdescription>
+    <longdescription>three options are available: images thumbnails, only the count of images of the group or nothing</longdescription>
   </dtconfig>
   <dtconfig>
     <name>plugins/map/show_outline</name>
@@ -1596,32 +1644,11 @@
     <longdescription/>
   </dtconfig>
   <dtconfig prefs="otherviews" section="geoloc">
-    <name>plugins/map/max_images_drawn</name>
-    <type>int</type>
-    <default>100</default>
-    <shortdescription>maximum number of images drawn on map</shortdescription>
-    <longdescription>the maximum number of geotagged images drawn on the map. increasing this number can slow drawing of the map down.</longdescription>
-  </dtconfig>
-  <dtconfig prefs="otherviews" section="geoloc">
     <name>plugins/lighttable/metadata_view/pretty_location</name>
     <type>bool</type>
     <default>true</default>
     <shortdescription>pretty print the image location</shortdescription>
     <longdescription>show a more readable representation of the location in the image information module</longdescription>
-  </dtconfig>
-  <dtconfig prefs="otherviews">
-    <name>plugins/map/epsilon_factor</name>
-    <type min="10" max="100">int</type>
-    <default>25</default>
-    <shortdescription>modify the spatial size of an images group on the map</shortdescription>
-    <longdescription>increase or decrease the spatial size of images groups on the map. can influence the calculation time</longdescription>
-  </dtconfig>
-  <dtconfig prefs="otherviews">
-    <name>plugins/map/min_images_per_group</name>
-    <type min="1" max="10">int</type>
-    <default>1</default>
-    <shortdescription>minimum number of images to set up an images group</shortdescription>
-    <longdescription>the minimum number of images to set up an images group. can influence the calculation time.</longdescription>
   </dtconfig>
   <dtconfig prefs="lighttable" section="general">
     <name>lighttable/ui/single_module</name>
@@ -2043,16 +2070,29 @@
   </dtconfig>
   <dtconfig>
     <name>plugins/imageio/format/jpeg/quality</name>
-    <type>int</type>
+    <type min="5" max="100">int</type>
+    <default>95</default>
+    <shortdescription/>
+    <longdescription/>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/imageio/format/j2k/quality</name>
+    <type min="5" max="100">int</type>
     <default>95</default>
     <shortdescription/>
     <longdescription/>
   </dtconfig>
   <dtconfig>
     <name>plugins/imageio/format/tiff/bpp</name>
-    <type>int</type>
+    <type>
+      <enum>
+        <option>8</option>
+        <option>16</option>
+        <option>32</option>
+      </enum>
+    </type>
     <default>8</default>
-    <shortdescription/>
+    <shortdescription>TIFF bit depth (bpp)</shortdescription>
     <longdescription/>
   </dtconfig>
   <dtconfig>
@@ -2064,23 +2104,103 @@
   </dtconfig>
   <dtconfig>
     <name>plugins/imageio/format/tiff/compresslevel</name>
-    <type>int</type>
+    <type min="0" max="9">int</type>
     <default>6</default>
     <shortdescription/>
     <longdescription/>
   </dtconfig>
   <dtconfig>
     <name>plugins/imageio/format/png/bpp</name>
-    <type>int</type>
+    <type>
+      <enum>
+        <option>8</option>
+        <option>16</option>
+      </enum>
+    </type>
     <default>8</default>
-    <shortdescription/>
+    <shortdescription>PNG bit depth (bpp)</shortdescription>
     <longdescription/>
   </dtconfig>
   <dtconfig>
     <name>plugins/imageio/format/png/compression</name>
-    <type>int</type>
+    <type min="0" max="9">int</type>
     <default>5</default>
     <shortdescription/>
+    <longdescription/>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/imageio/format/webp/comp_type</name>
+    <type min="0" max="1">int</type>
+    <default>0</default>
+    <shortdescription/>
+    <longdescription/>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/imageio/format/webp/quality</name>
+    <type min="5" max="100">int</type>
+    <default>95</default>
+    <shortdescription/>
+    <longdescription/>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/imageio/format/webp/hint</name>
+    <type>int</type>
+    <default>0</default>
+    <shortdescription/>
+    <longdescription/>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/imageio/format/avif/bpp</name>
+    <type>
+      <enum>
+        <option>8</option>
+        <option>10</option>
+        <option>12</option>
+      </enum>
+    </type>
+    <default>8</default>
+    <shortdescription>AVIF bit depth (bpp)</shortdescription>
+    <longdescription/>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/imageio/format/avif/color_mode</name>
+    <type min="0">int</type>
+    <default>0</default>
+    <shortdescription/>
+    <longdescription/>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/imageio/format/avif/tiling</name>
+    <type>bool</type>
+    <default>true</default>
+    <shortdescription>AVIF Tiling</shortdescription>
+    <longdescription/>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/imageio/format/avif/compression_type</name>
+    <type min="0">int</type>
+    <default>0</default>
+    <shortdescription/>
+    <longdescription/>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/imageio/format/avif/quality</name>
+    <type min="5" max="100">int</type>
+    <default>92</default>
+    <shortdescription/>
+    <longdescription/>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/imageio/format/xcf/bpp</name>
+    <type>
+      <enum>
+        <option>8</option>
+        <option>16</option>
+        <option>32</option>
+      </enum>
+    </type>
+    <default>32</default>
+    <shortdescription>XCF bit depth (bpp)</shortdescription>
     <longdescription/>
   </dtconfig>
   <dtconfig prefs="misc" section="other">
@@ -2570,6 +2690,20 @@
     <longdescription>show the name of the module of each basic widget</longdescription>
   </dtconfig>
   <dtconfig>
+    <name>plugins/lighttable/geotagging/heighttracklist</name>
+    <type>int</type>
+    <default>50</default>
+    <shortdescription>height of the track list</shortdescription>
+    <longdescription>maximum height the track list will grow to before scrolling</longdescription>
+  </dtconfig>
+  <dtconfig ui="yes">
+    <name>plugins/lighttable/geotagging/tz</name>
+    <type>string</type>
+    <default>UTC</default>
+    <shortdescription>camera time zone</shortdescription>
+    <longdescription>most cameras don't store the time zone in EXIF. give the correct time zone so the GPX data can be correctly matched</longdescription>
+  </dtconfig>
+  <dtconfig>
     <name>plugins/map/geotagging_search_url</name>
     <type>string</type>
     <default>https://nominatim.openstreetmap.org/search/%s?format=xml&amp;limit=%d&amp;polygon_text=1</default>
@@ -2601,7 +2735,7 @@
     <type>bool</type>
     <default>true</default>
     <shortdescription>arange buttons as bar below temp/tint sliders</shortdescription>
-    <longdescription>if enabled, the buttons in white balance module will be aranged below temp/tint sliders, otherwise they'll be shown in a grid to the right of temp/tint sliders</longdescription>
+    <longdescription>if enabled, the buttons in white balance module will be arranged below temp/tint sliders, otherwise they'll be shown in a grid to the right of temp/tint sliders</longdescription>
   </dtconfig>
   <dtconfig>
     <name>plugins/darkroom/colorzones/bg_sat_factor</name>

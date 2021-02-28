@@ -643,7 +643,7 @@ static void pixelpipe_picker(dt_iop_module_t *module, dt_dev_pixelpipe_iop_t *pi
     return;
   }
 
-  float min[4], max[4], avg[4];
+  float min[4] DT_ALIGNED_PIXEL, max[4] DT_ALIGNED_PIXEL, avg[4] DT_ALIGNED_PIXEL;
   for(int k = 0; k < 4; k++)
   {
     min[k] = INFINITY;
@@ -728,7 +728,7 @@ static void pixelpipe_picker_cl(int devid, dt_iop_module_t *module, dt_dev_pixel
   box[2] = region[0];
   box[3] = region[1];
 
-  float min[4], max[4], avg[4];
+  float min[4] DT_ALIGNED_PIXEL, max[4] DT_ALIGNED_PIXEL, avg[4] DT_ALIGNED_PIXEL;
   for(int k = 0; k < 4; k++)
   {
     min[k] = INFINITY;
@@ -905,15 +905,13 @@ static void _pixelpipe_pick_live_samples(const float *const input, const dt_iop_
     pthread_rwlock_unlock(&darktable.color_profiles->xprofile_lock);
 
   dt_colorpicker_sample_t *sample = NULL;
-  GSList *samples = darktable.lib->proxy.colorpicker.live_samples;
 
-  while(samples)
+  for(GSList *samples = darktable.lib->proxy.colorpicker.live_samples; samples; samples = g_slist_next(samples))
   {
     sample = samples->data;
 
     if(sample->locked)
     {
-      samples = g_slist_next(samples);
       continue;
     }
 
@@ -921,8 +919,6 @@ static void _pixelpipe_pick_live_samples(const float *const input, const dt_iop_
         sample->box, sample->point, sample->size,
         sample->picked_color_rgb_min, sample->picked_color_rgb_max, sample->picked_color_rgb_mean,
         sample->picked_color_lab_min, sample->picked_color_lab_max, sample->picked_color_lab_mean);
-
-    samples = g_slist_next(samples);
   }
 
   if(xform_rgb2lab) cmsDeleteTransform(xform_rgb2lab);

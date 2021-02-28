@@ -193,7 +193,8 @@ typedef enum dt_view_image_over_t
 
 // get images to act on for gloabals change (via libs or accels)
 // no need to free the list - done internally
-const GList *dt_view_get_images_to_act_on(const gboolean only_visible, const gboolean force);
+const GList *dt_view_get_images_to_act_on(const gboolean only_visible, const gboolean force,
+                                          const gboolean ordering);
 // get the main image to act on during global changes (libs, accels)
 int dt_view_get_image_to_act_on();
 
@@ -240,6 +241,8 @@ typedef struct dt_view_manager_t
     int image_over;
     gboolean inside_table;
     GSList *active_imgs;
+    gboolean image_over_inside_sel;
+    gboolean ordering;
   } act_on;
 
   /* reusable db statements
@@ -356,7 +359,7 @@ typedef struct dt_view_manager_t
       struct dt_view_t *view;
       void (*center_on_location)(const dt_view_t *view, gdouble lon, gdouble lat, double zoom);
       void (*center_on_bbox)(const dt_view_t *view, gdouble lon1, gdouble lat1, gdouble lon2, gdouble lat2);
-      void (*show_osd)(const dt_view_t *view, gboolean enabled);
+      void (*show_osd)(const dt_view_t *view);
       void (*set_map_source)(const dt_view_t *view, OsmGpsMapSource_t map_source);
       GObject *(*add_marker)(const dt_view_t *view, dt_geo_map_display_t type, GList *points);
       gboolean (*remove_marker)(const dt_view_t *view, dt_geo_map_display_t type, GObject *marker);
@@ -420,6 +423,12 @@ void dt_view_manager_module_toolbox_add(dt_view_manager_t *vm, GtkWidget *tool, 
 void dt_view_set_scrollbar(dt_view_t *view, float hpos, float hscroll_lower, float hsize, float hwinsize,
                            float vpos, float vscroll_lower, float vsize, float vwinsize);
 
+/** add mouse action record to list of mouse actions */
+GSList *dt_mouse_action_create_simple(GSList *actions, dt_mouse_action_type_t type, GdkModifierType accel,
+                                      const char *const description);
+GSList *dt_mouse_action_create_format(GSList *actions, dt_mouse_action_type_t type, GdkModifierType accel,
+                                      const char *const format_string, const char *const replacement);
+
 /*
  * Tethering View PROXY
  */
@@ -479,7 +488,7 @@ void dt_view_audio_stop(dt_view_manager_t *vm);
 #ifdef HAVE_MAP
 void dt_view_map_center_on_location(const dt_view_manager_t *vm, gdouble lon, gdouble lat, gdouble zoom);
 void dt_view_map_center_on_bbox(const dt_view_manager_t *vm, gdouble lon1, gdouble lat1, gdouble lon2, gdouble lat2);
-void dt_view_map_show_osd(const dt_view_manager_t *vm, gboolean enabled);
+void dt_view_map_show_osd(const dt_view_manager_t *vm);
 void dt_view_map_set_map_source(const dt_view_manager_t *vm, OsmGpsMapSource_t map_source);
 GObject *dt_view_map_add_marker(const dt_view_manager_t *vm, dt_geo_map_display_t type, GList *points);
 gboolean dt_view_map_remove_marker(const dt_view_manager_t *vm, dt_geo_map_display_t type, GObject *marker);

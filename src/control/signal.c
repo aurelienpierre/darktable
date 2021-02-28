@@ -51,7 +51,7 @@ typedef struct dt_signal_description
 static GType uint_arg[] = { G_TYPE_UINT };
 static GType pointer_arg[] = { G_TYPE_POINTER };
 static GType pointer_2arg[] = { G_TYPE_POINTER, G_TYPE_POINTER };
-static GType pointer_trouble[] = { G_TYPE_POINTER, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING };
+static GType pointer_trouble[] = { G_TYPE_POINTER, G_TYPE_STRING, G_TYPE_STRING };
 static GType collection_args[] = { G_TYPE_UINT, G_TYPE_POINTER, G_TYPE_UINT };
 static GType image_export_arg[]
     = { G_TYPE_UINT, G_TYPE_STRING, G_TYPE_POINTER, G_TYPE_POINTER, G_TYPE_POINTER, G_TYPE_POINTER };
@@ -63,7 +63,7 @@ static GType geotag_arg[] = { G_TYPE_POINTER, G_TYPE_UINT };
 static void _collection_changed_destroy_callback(gpointer instance, int query_change, gpointer imgs,
                                                  const int next, gpointer user_data)
 {
-  if(imgs && g_list_length(imgs) > 0)
+  if(imgs)
   {
     g_list_free(imgs);
     imgs = NULL;
@@ -73,7 +73,7 @@ static void _collection_changed_destroy_callback(gpointer instance, int query_ch
 // callback for the destructor of DT_SIGNAL_IMAGE_INFO_CHANGED
 static void _image_info_changed_destroy_callback(gpointer instance, gpointer imgs, gpointer user_data)
 {
-  if(imgs && g_list_length(imgs) > 0)
+  if(imgs)
   {
     g_list_free(imgs);
     imgs = NULL;
@@ -89,7 +89,7 @@ static void _presets_changed_destroy_callback(gpointer instance, gpointer module
 // callback for the destructor of DT_SIGNAL_GEOTAG_CHANGED
 static void _image_geotag_destroy_callback(gpointer instance, gpointer imgs, const int locid, gpointer user_data)
 {
-  if(imgs && g_list_length(imgs) > 0)
+  if(imgs)
   {
     g_list_free(imgs);
     imgs = NULL;
@@ -193,7 +193,7 @@ static dt_signal_description _signal_description[DT_SIGNAL_COUNT] = {
   { "dt-metadata-update", NULL, NULL, G_TYPE_NONE, g_cclosure_marshal_VOID__VOID, 0, NULL, NULL,
     FALSE }, // DT_SIGNAL_METADATA_UPDATE
 
-  { "dt-trouble-message", NULL, NULL, G_TYPE_NONE, g_cclosure_marshal_generic, 4, pointer_trouble, NULL,
+  { "dt-trouble-message", NULL, NULL, G_TYPE_NONE, g_cclosure_marshal_generic, 3, pointer_trouble, NULL,
     FALSE }, // DT_SIGNAL_TROUBLE_MESSAGE
 };
 

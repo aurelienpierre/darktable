@@ -107,9 +107,9 @@ static int32_t dt_camera_capture_job_run(dt_job_t *job)
     do
     {
       // Add value to list
-      values = g_list_append(values, g_strdup(value));
+      values = g_list_prepend(values, g_strdup(value));
       // Check if current values is the same as original value, then lets store item ptr
-      if(strcmp(value, cvalue) == 0) original_value = g_list_last(values)->data;
+      if(strcmp(value, cvalue) == 0) original_value = values->data;
     } while((value = dt_camctl_camera_property_get_next_choice(darktable.camctl, NULL, "shutterspeed"))
             != NULL);
   }
@@ -283,14 +283,15 @@ void _camera_import_image_downloaded(const dt_camera_t *camera, const char *file
 {
   // Import downloaded image to import filmroll
   dt_camera_import_t *t = (dt_camera_import_t *)data;
-  const int32_t imgid = dt_image_import(dt_import_session_film_id(t->shared.session), filename, FALSE);
+  const int32_t imgid = dt_image_import(dt_import_session_film_id(t->shared.session), filename, FALSE, TRUE);
   dt_control_queue_redraw_center();
   gchar *basename = g_path_get_basename(filename);
+  const int num_images = g_list_length(t->images);
   dt_control_log(ngettext("%d/%d imported to %s", "%d/%d imported to %s", t->import_count + 1),
-                 t->import_count + 1, g_list_length(t->images), basename);
+                 t->import_count + 1, num_images, basename);
   g_free(basename);
 
-  t->fraction += 1.0 / g_list_length(t->images);
+  t->fraction += 1.0 / num_images;
 
   dt_control_job_set_progress(t->job, t->fraction);
 
@@ -299,7 +300,7 @@ void _camera_import_image_downloaded(const dt_camera_t *camera, const char *file
     dt_collection_update_query(darktable.collection, DT_COLLECTION_CHANGE_NEW_QUERY, NULL);
   }
 
-  if(t->import_count + 1 == g_list_length(t->images))
+  if(t->import_count + 1 == num_images)
   {
     // only redraw at the end, to not spam the cpu with exposure events
     dt_control_queue_redraw_center();

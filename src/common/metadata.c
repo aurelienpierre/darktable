@@ -400,7 +400,7 @@ GList *dt_metadata_get(const int id, const char *key, uint32_t *count)
         local_count++;
         int stars = sqlite3_column_int(stmt, 0);
         stars = (stars & 0x7) - 1;
-        result = g_list_append(result, GINT_TO_POINTER(stars));
+        result = g_list_prepend(result, GINT_TO_POINTER(stars));
       }
       sqlite3_finalize(stmt);
     }
@@ -425,7 +425,7 @@ GList *dt_metadata_get(const int id, const char *key, uint32_t *count)
       while(sqlite3_step(stmt) == SQLITE_ROW)
       {
         local_count++;
-        result = g_list_append(result, g_strdup((char *)sqlite3_column_text(stmt, 0)));
+        result = g_list_prepend(result, g_strdup((char *)sqlite3_column_text(stmt, 0)));
       }
       sqlite3_finalize(stmt);
     }
@@ -448,12 +448,12 @@ GList *dt_metadata_get(const int id, const char *key, uint32_t *count)
       while(sqlite3_step(stmt) == SQLITE_ROW)
       {
         local_count++;
-        result = g_list_append(result, GINT_TO_POINTER(sqlite3_column_int(stmt, 0)));
+        result = g_list_prepend(result, GINT_TO_POINTER(sqlite3_column_int(stmt, 0)));
       }
       sqlite3_finalize(stmt);
     }
     if(count != NULL) *count = local_count;
-    return result;
+    return g_list_reverse(result);
   }
 
   // So we got this far -- it has to be a generic key-value entry from meta_data
@@ -477,11 +477,11 @@ GList *dt_metadata_get(const int id, const char *key, uint32_t *count)
   {
     local_count++;
     char *value = (char *)sqlite3_column_text(stmt, 0);
-    result = g_list_append(result, g_strdup(value ? value : "")); // to avoid NULL value
+    result = g_list_prepend(result, g_strdup(value ? value : "")); // to avoid NULL value
   }
   sqlite3_finalize(stmt);
   if(count != NULL) *count = local_count;
-  return result;
+  return g_list_reverse(result);  // list was built in reverse order, so un-reverse it
 }
 
 static void _metadata_add_metadata_to_list(GList **list, const GList *metadata)
@@ -588,9 +588,9 @@ void dt_metadata_set(const int imgid, const char *key, const char *value, const 
   {
     GList *imgs = NULL;
     if(imgid == -1)
-      imgs = g_list_copy((GList *)dt_view_get_images_to_act_on(TRUE, TRUE));
+      imgs = g_list_copy((GList *)dt_view_get_images_to_act_on(TRUE, TRUE, FALSE));
     else
-      imgs = g_list_append(imgs, GINT_TO_POINTER(imgid));
+      imgs = g_list_prepend(imgs, GINT_TO_POINTER(imgid));
     if(imgs)
     {
       GList *undo = NULL;
@@ -634,7 +634,7 @@ void dt_metadata_set_import(const int imgid, const char *key, const char *value)
     if(imported)
     {
       GList *imgs = NULL;
-      imgs = g_list_append(imgs, GINT_TO_POINTER(imgid));
+      imgs = g_list_prepend(imgs, GINT_TO_POINTER(imgid));
       if(imgs)
       {
         GList *undo = NULL;
@@ -713,13 +713,14 @@ void dt_metadata_clear(const GList *imgs, const gboolean undo_on)
       if(!hidden)
       {
         // caution: metadata is a simple list here
-        metadata = g_list_append(metadata, dt_util_dstrcat(NULL, "%d", i));
+        metadata = g_list_prepend(metadata, dt_util_dstrcat(NULL, "%d", i));
       }
     }
   }
 
   if(metadata)
   {
+    metadata = g_list_reverse(metadata);  // list was built in reverse order, so un-reverse it
     GList *undo = NULL;
     if(undo_on) dt_undo_start_group(darktable.undo, DT_UNDO_METADATA);
 
@@ -738,15 +739,13 @@ void dt_metadata_clear(const GList *imgs, const gboolean undo_on)
 void dt_metadata_set_list_id(const GList *img, const GList *metadata, const gboolean clear_on,
                              const gboolean undo_on)
 {
-  GList *imgs = g_list_copy((GList *)img);
-  if(imgs)
+  if(img)
   {
     GList *undo = NULL;
     if(undo_on) dt_undo_start_group(darktable.undo, DT_UNDO_METADATA);
 
-    _metadata_execute(imgs, metadata, &undo, undo_on, clear_on ? DT_MA_SET : DT_MA_ADD);
+    _metadata_execute(img, metadata, &undo, undo_on, clear_on ? DT_MA_SET : DT_MA_ADD);
 
-    g_list_free(imgs);
     if(undo_on)
     {
       dt_undo_record(darktable.undo, NULL, DT_UNDO_METADATA, undo, _pop_undo, _metadata_undo_data_free);

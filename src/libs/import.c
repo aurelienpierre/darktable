@@ -533,24 +533,23 @@ static void _lib_import_single_image_callback(GtkWidget *widget, dt_lib_import_t
     char *filename = NULL;
     dt_film_t film;
     GSList *list = gtk_file_chooser_get_filenames(GTK_FILE_CHOOSER(filechooser));
-    GSList *it = list;
     int id = 0;
     int filmid = 0;
 
     /* reset filter so that view isn't empty */
     dt_view_filter_reset(darktable.view_manager, TRUE);
 
-    while(it)
+    for(GSList *it = list; it; it = g_slist_next(it))
     {
       filename = (char *)it->data;
       gchar *directory = g_path_get_dirname((const gchar *)filename);
       filmid = dt_film_new(&film, directory);
-      id = dt_image_import(filmid, filename, TRUE);
+      id = dt_image_import(filmid, filename, TRUE, TRUE);
       if(!id) dt_control_log(_("error loading file `%s'"), filename);
       g_free(filename);
       g_free(directory);
-      it = g_slist_next(it);
     }
+    g_slist_free(list); // we've already freed the filenames stored in the list, but still need to free the list itself
 
     if(id)
     {
@@ -598,20 +597,22 @@ static void _lib_import_folder_callback(GtkWidget *widget, dt_lib_module_t* self
   // run the dialog
   if(gtk_dialog_run(GTK_DIALOG(filechooser)) == GTK_RESPONSE_ACCEPT)
   {
+    // hide the dialog as soon as possible
+    gtk_widget_hide(filechooser);
+
     gchar *folder = gtk_file_chooser_get_current_folder(GTK_FILE_CHOOSER(filechooser));
     dt_conf_set_string("ui_last/import_last_directory", folder);
     g_free(folder);
 
     char *filename = NULL, *first_filename = NULL;
     GSList *list = gtk_file_chooser_get_filenames(GTK_FILE_CHOOSER(filechooser));
-    GSList *it = list;
 
     /* reset filter so that view isn't empty */
     dt_view_filter_reset(darktable.view_manager, TRUE);
 
     /* for each selected folder add import job */
     const gboolean recursive = dt_conf_get_bool("ui_last/import_recursive");
-    while(it)
+    for (GSList *it = list; it; it = g_slist_next(it))
     {
       filename = (char *)it->data;
       dt_film_import(filename);
@@ -622,8 +623,8 @@ static void _lib_import_folder_callback(GtkWidget *widget, dt_lib_module_t* self
           first_filename = dt_util_dstrcat(first_filename, "%%");
       }
       g_free(filename);
-      it = g_slist_next(it);
     }
+    g_slist_free(list); // we've already freed the filenames stored in the list, but still need to free the list itself
 
     /* update collection to view import */
     if(first_filename)
@@ -634,9 +635,6 @@ static void _lib_import_folder_callback(GtkWidget *widget, dt_lib_module_t* self
       dt_collection_update_query(darktable.collection, DT_COLLECTION_CHANGE_NEW_QUERY, NULL);
       g_free(first_filename);
     }
-
-
-    g_slist_free(list);
   }
 
   gtk_widget_destroy(filechooser);
@@ -818,11 +816,11 @@ const struct
   char *name;
   int type;
 } _pref[] = {
-  {"ui_last/import_ignore_jpegs", "ignore_jpegs", DT_BOOL},
-  {"ui_last/import_apply_metadata", "apply_metadata", DT_BOOL},
-  {"ui_last/import_recursive", "recursive", DT_BOOL},
-  {"ui_last/ignore_exif_rating", "ignore_exif_rating", DT_BOOL},
-  {"ui_last/import_initial_rating", "rating", DT_INT}
+  {"ui_last/import_ignore_jpegs",   "ignore_jpegs",       DT_BOOL},
+  {"ui_last/import_apply_metadata", "apply_metadata",     DT_BOOL},
+  {"ui_last/import_recursive",      "recursive",          DT_BOOL},
+  {"ui_last/ignore_exif_rating",    "ignore_exif_rating", DT_BOOL},
+  {"ui_last/import_initial_rating", "rating",             DT_INT}
 };
 static const guint pref_n = G_N_ELEMENTS(_pref);
 

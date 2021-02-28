@@ -556,8 +556,6 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
     for(size_t k = 0; k < LUT_ELEM; k++)
       if(d->max_chroma < LUT[k]) d->max_chroma = LUT[k];
   }
-
-  fprintf(stdout, "max chroma : %f\n", d->max_chroma);
 }
 
 void init_pipe(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
@@ -948,7 +946,7 @@ void gui_init(dt_iop_module_t *self)
   gtk_widget_set_tooltip_text(g->highlights_C, _("chroma of the color gain in highlights"));
 
   // Page masks
-  self->widget = dt_ui_notebook_page(g->notebook, _("masks"), _("isolate luninances"));
+  self->widget = dt_ui_notebook_page(g->notebook, _("masks"), _("isolate luminances"));
 
   g->shadows_weight = dt_bauhaus_slider_from_params(self, "shadows_weight");
   dt_bauhaus_slider_set_digits(g->shadows_weight, 4);

@@ -67,6 +67,8 @@
 #include "libs/lib.h"
 #include "lua/init.h"
 #include "views/view.h"
+#include "conf_gen.h"
+
 #include <errno.h>
 #include <glib.h>
 #include <glib/gstdio.h>
@@ -265,7 +267,7 @@ int dt_load_from_string(const gchar *input, gboolean open_image_in_dr, gboolean 
     gchar *directory = g_path_get_dirname((const gchar *)filename);
     dt_film_t film;
     const int filmid = dt_film_new(&film, directory);
-    id = dt_image_import(filmid, filename, TRUE);
+    id = dt_image_import(filmid, filename, TRUE, TRUE);
     g_free(directory);
     if(id)
     {
@@ -609,7 +611,7 @@ int dt_init(int argc, char *argv[], const gboolean init_gui, const gboolean load
         else if(!strcmp(argv[k + 1], "ioporder"))
           darktable.unmuted |= DT_DEBUG_IOPORDER; // iop order information are reported on console
         else if(!strcmp(argv[k + 1], "imageio"))
-          darktable.unmuted |= DT_DEBUG_IMAGEIO; // image importing or exporting mesages on console
+          darktable.unmuted |= DT_DEBUG_IMAGEIO; // image importing or exporting messages on console
         else if(!strcmp(argv[k + 1], "undo"))
           darktable.unmuted |= DT_DEBUG_UNDO; // undo/redo
         else if(!strcmp(argv[k + 1], "signal"))
@@ -888,6 +890,8 @@ int dt_init(int argc, char *argv[], const gboolean init_gui, const gboolean load
 
   // set the interface language and prepare selection for prefs
   darktable.l10n = dt_l10n_init(init_gui);
+
+  dt_confgen_init();
 
   // we need this REALLY early so that error messages can be shown, however after gtk_disable_setlocale
   if(init_gui)

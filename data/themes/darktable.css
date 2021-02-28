@@ -887,6 +887,12 @@ dialog scrolledwindow
   font-style: italic;
 }
 
+#right #lib-plugin-ui #gpx_list checkbutton check
+{
+  margin: 1px;
+  padding: 0px;
+}
+
 /* Set import from camera or card dialog window */
 dialog .dialog-vbox notebook stack /* set top margin ; between tabs and text below */
 {
@@ -1521,35 +1527,26 @@ margin: 0 2px;
   padding: 0.45em;
 }
 
-#basics-box,
-#basics-box-labels
-{
-  padding-bottom: 0.75em;
-}
-
 #basics-box
 {
+  padding-bottom: 0.75em;
   padding-top: 0.5em;
 }
 
 #basics-box #module-enable-button,
-#basics-box-labels #module-enable-button
-{
-  min-height: 1em;
-  min-width: 1em;
-  border: none;
-}
-
+#basics-box-labels #module-enable-button,
 #basics-link
 {
-  min-height: 1em;
-  min-width: 1em;
-  margin: 0 0 0.3em 0.75em;
+  min-height: 1.15em;
+  min-width: 1.15em;
+  margin: 0 0.5em;
   border: none;
+  padding: 0.2em 0.3em 0.3em 0.2em;
 }
 
 #basics-header-box #basics-link
 {
+  color: shade(@button_fg, 1.1);
   margin-bottom: 0;
 }
 
@@ -1567,7 +1564,8 @@ margin: 0 2px;
 
 #basics-box-labels #section_label
 {
-  margin-top: 0.5em;
+  margin-top: 0.25em;
+  padding: 0.25em 0;
   border: none;
 }
 
@@ -1578,8 +1576,13 @@ margin: 0 2px;
 
 #basics-header-box
 {
-  border-bottom: 0.5px solid @section_label;
-  margin: 0 0.75em 0.5em 0.75em;
+  border-top: 0.7px solid @darkroom_bg_color;
+  margin: 0.15em 0;
+}
+
+#basics-box-labels #basics-header-box:first-child
+{
+  border-top: none;
 }
 
 #basics-header-box-first
@@ -2308,7 +2311,7 @@ scale contents trough slider:hover
 
 /*** --- Thumbtable css part ---
 
-Hierachy :
+Hierarchy :
 
   #thumbtable_filemanager / #thumbtable_filmstrip / #thumbtable_zoom (GtkLayout -- main widget which contains all thumbs)
     #thumb_main                                                      (GtkOverlay -- thumbnail widget)
@@ -2339,7 +2342,7 @@ Details :
     state = :selected  if the thumb is in current selection
     state = :active    if the thumb correspond to one of the images worked on (filmstrip)
     state = :hover     if the mouse hover the widget
-    class = .dt_group_left / .dt_group_right / .dt_group_top / .dt_group_bottom  if we need to draw group borders arround thumb
+    class = .dt_group_left / .dt_group_right / .dt_group_top / .dt_group_bottom  if we need to draw group borders around thumb
   #thumb_image
     only the borders are drawn - background is ignored
   all icons inside the widget

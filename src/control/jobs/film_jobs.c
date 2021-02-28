@@ -109,7 +109,7 @@ static GList *_film_recursive_get_files(const gchar *path, gboolean recursive, G
     }
     /* or test if we found a supported image format to import */
     else if(!g_file_test(fullname, G_FILE_TEST_IS_DIR) && dt_supported_image(filename))
-      *result = g_list_append(*result, fullname);
+      *result = g_list_prepend(*result, fullname);
     else
       g_free(fullname);
 
@@ -119,6 +119,31 @@ static GList *_film_recursive_get_files(const gchar *path, gboolean recursive, G
   g_dir_close(cdir);
 
   return *result;
+}
+
+/* check if we can find a gpx data file to be auto applied
+   to images in the just imported filmroll
+*/
+static void _apply_filmroll_gpx(dt_film_t *cfr)
+{
+  if(cfr && cfr->dir)
+  {
+    g_dir_rewind(cfr->dir);
+    const gchar *dfn = NULL;
+    while((dfn = g_dir_read_name(cfr->dir)) != NULL)
+    {
+      /* check if we have a gpx to be auto applied to filmroll */
+      const size_t len = strlen(dfn);
+      if(strcmp(dfn + len - 4, ".gpx") == 0 || strcmp(dfn + len - 4, ".GPX") == 0)
+      {
+        gchar *gpx_file = g_build_path(G_DIR_SEPARATOR_S, cfr->dirname, dfn, NULL);
+        gchar *tz = dt_conf_get_string("plugins/lighttable/geotagging/tz");
+        dt_control_gpx_apply(gpx_file, cfr->id, tz, NULL);
+        g_free(gpx_file);
+        g_free(tz);
+      }
+    }
+  }
 }
 
 /* compare used for sorting the list of files to import
@@ -141,7 +166,7 @@ static void dt_film_import1(dt_job_t *job, dt_film_t *film)
   /* first of all gather all images to import */
   GList *images = NULL;
   images = _film_recursive_get_files(film->dirname, recursive, &images);
-  if(g_list_length(images) == 0)
+  if(images == NULL)
   {
     dt_control_log(_("no supported images were found to be imported"));
     return;
@@ -184,7 +209,7 @@ static void dt_film_import1(dt_job_t *job, dt_film_t *film)
   dt_lua_unlock();
 #endif
 
-  if(g_list_length(images) == 0)
+  if(images == NULL)
   {
     // no error message, lua probably emptied the list on purpose
     return;
@@ -200,10 +225,14 @@ static void dt_film_import1(dt_job_t *job, dt_film_t *film)
   g_snprintf(message, sizeof(message) - 1, ngettext("importing %d image", "importing %d images", total), total);
   dt_control_job_set_progress_message(job, message);
 
+  GList *imgs = NULL;
+  GList *all_imgs = NULL;
 
   /* loop thru the images and import to current film roll */
   dt_film_t *cfr = film;
   GList *image = g_list_first(images);
+  int pending = 0;
+  double last_update = dt_get_wtime();
   do
   {
     gchar *cdn = g_path_get_dirname((const gchar *)image->data);
@@ -211,27 +240,7 @@ static void dt_film_import1(dt_job_t *job, dt_film_t *film)
     /* check if we need to initialize a new filmroll */
     if(!cfr || g_strcmp0(cfr->dirname, cdn) != 0)
     {
-      // FIXME: maybe refactor into function and call it?
-      if(cfr && cfr->dir)
-      {
-        /* check if we can find a gpx data file to be auto applied
-           to images in the just imported filmroll */
-        g_dir_rewind(cfr->dir);
-        const gchar *dfn = NULL;
-        while((dfn = g_dir_read_name(cfr->dir)) != NULL)
-        {
-          /* check if we have a gpx to be auto applied to filmroll */
-          const size_t len = strlen(dfn);
-          if(strcmp(dfn + len - 4, ".gpx") == 0 || strcmp(dfn + len - 4, ".GPX") == 0)
-          {
-            gchar *gpx_file = g_build_path(G_DIR_SEPARATOR_S, cfr->dirname, dfn, NULL);
-            gchar *tz = dt_conf_get_string("plugins/lighttable/geotagging/tz");
-            dt_control_gpx_apply(gpx_file, cfr->id, tz);
-            g_free(gpx_file);
-            g_free(tz);
-          }
-        }
-      }
+      _apply_filmroll_gpx(cfr);
 
       /* cleanup previously imported filmroll*/
       if(cfr && cfr != film)
@@ -254,18 +263,29 @@ static void dt_film_import1(dt_job_t *job, dt_film_t *film)
     g_free(cdn);
 
     /* import image */
-    const int32_t imgid = dt_image_import(cfr->id, (const gchar *)image->data, FALSE);
-
+    const int32_t imgid = dt_image_import(cfr->id, (const gchar *)image->data, FALSE, FALSE);
+    pending++;  // we have another image which hasn't been reported yet
     fraction += 1.0 / total;
     dt_control_job_set_progress(job, fraction);
 
-    if((imgid & 3) == 3)
+    all_imgs = g_list_prepend(all_imgs, GINT_TO_POINTER(imgid));
+    imgs = g_list_append(imgs, GINT_TO_POINTER(imgid));
+    double curr_time = dt_get_wtime();
+    // if we've imported at least four images without an update, and it's been at least half a second since the last
+    //   one, update the interface
+    if(pending >= 4 && curr_time - last_update > 0.5)
     {
-      dt_collection_update_query(darktable.collection, DT_COLLECTION_CHANGE_NEW_QUERY, NULL);
+      dt_collection_update_query(darktable.collection, DT_COLLECTION_CHANGE_RELOAD, g_list_copy(imgs));
+      g_list_free(imgs);
+      imgs = NULL;
+      // restart the update count and timer
+      pending = 0;
+      last_update = curr_time;
     }
   } while((image = g_list_next(image)) != NULL);
 
   g_list_free_full(images, g_free);
+  all_imgs = g_list_reverse(all_imgs);
 
   // only redraw at the end, to not spam the cpu with exposure events
   dt_control_queue_redraw_center();
@@ -273,27 +293,9 @@ static void dt_film_import1(dt_job_t *job, dt_film_t *film)
 
   DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_FILMROLLS_IMPORTED, film->id);
 
-  // FIXME: maybe refactor into function and call it?
-  if(cfr && cfr->dir)
-  {
-    /* check if we can find a gpx data file to be auto applied
-       to images in the just imported filmroll */
-    g_dir_rewind(cfr->dir);
-    const gchar *dfn = NULL;
-    while((dfn = g_dir_read_name(cfr->dir)) != NULL)
-    {
-      /* check if we have a gpx to be auto applied to filmroll */
-      const size_t len = strlen(dfn);
-      if(strcmp(dfn + len - 4, ".gpx") == 0 || strcmp(dfn + len - 4, ".GPX") == 0)
-      {
-        gchar *gpx_file = g_build_path(G_DIR_SEPARATOR_S, cfr->dirname, dfn, NULL);
-        gchar *tz = dt_conf_get_string("plugins/lighttable/geotagging/tz");
-        dt_control_gpx_apply(gpx_file, cfr->id, tz);
-        g_free(gpx_file);
-        g_free(tz);
-      }
-    }
-  }
+  DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_GEOTAG_CHANGED, all_imgs, 0);
+
+  _apply_filmroll_gpx(cfr);
 
   /* cleanup previously imported filmroll*/
   if(cfr && cfr != film)

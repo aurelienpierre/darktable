@@ -540,7 +540,7 @@ static int _history_copy_and_paste_on_image_merge(int32_t imgid, int32_t dest_im
           if (DT_IOP_ORDER_INFO)
             fprintf(stderr,"\n  module %20s, multiprio %i",  hist->module->op, hist->module->multi_priority);
 
-          mod_list = g_list_append(mod_list, hist->module);
+          mod_list = g_list_prepend(mod_list, hist->module);
         }
       }
 
@@ -564,13 +564,15 @@ static int _history_copy_and_paste_on_image_merge(int32_t imgid, int32_t dest_im
          && (copy_full || !dt_history_module_skip_copy(mod_src->flags()))
         )
       {
-        mod_list = g_list_append(mod_list, mod_src);
+        mod_list = g_list_prepend(mod_list, mod_src);
       }
 
       modules_src = g_list_next(modules_src);
     }
   }
   if (DT_IOP_ORDER_INFO) fprintf(stderr,"\nvvvvv\n");
+
+  mod_list = g_list_reverse(mod_list);   // list was built in reverse order, so un-reverse it
 
   // update iop-order list to have entries for the new modules
   dt_ioppr_update_for_modules(dev_dest, mod_list, FALSE);
@@ -882,13 +884,13 @@ GList *dt_history_get_items(const int32_t imgid, gboolean enabled)
       }
       item->name = g_strdup(name);
       item->op = g_strdup((gchar *)sqlite3_column_text(stmt, 1));
-      result = g_list_append(result, item);
+      result = g_list_prepend(result, item);
 
       g_free(mname);
     }
   }
   sqlite3_finalize(stmt);
-  return result;
+  return g_list_reverse(result);   // list was built in reverse order, so un-reverse it
 }
 
 char *dt_history_get_items_as_string(const int32_t imgid)
@@ -911,10 +913,11 @@ char *dt_history_get_items_as_string(const int32_t imgid)
     name = g_strconcat(dt_iop_get_localized_name((char *)sqlite3_column_text(stmt, 0)),
                        multi_name ? multi_name : "", " (",
                        (sqlite3_column_int(stmt, 1) == 0) ? onoff[0] : onoff[1], ")", NULL);
-    items = g_list_append(items, name);
+    items = g_list_prepend(items, name);
     g_free(multi_name);
   }
   sqlite3_finalize(stmt);
+  items = g_list_reverse(items); // list was built in reverse order, so un-reverse it
   char *result = dt_util_glist_to_str("\n", items);
   g_list_free_full(items, g_free);
   return result;
@@ -1303,11 +1306,11 @@ GList *dt_history_duplicate(GList *hist)
 
     if(old->forms) new->forms = dt_masks_dup_forms_deep(old->forms, NULL);
 
-    result = g_list_append(result, new);
+    result = g_list_prepend(result, new);
 
     h = g_list_next(h);
   }
-  return result;
+  return g_list_reverse(result);  // list was built in reverse order, so un-reverse it
 }
 
 #if 0
@@ -1662,7 +1665,8 @@ gboolean dt_history_copy_parts(int imgid)
 gboolean dt_history_paste_on_list(const GList *list, gboolean undo)
 {
   if(darktable.view_manager->copy_paste.copied_imageid <= 0) return FALSE;
-  if(g_list_length((GList *)list) < 1) return FALSE;
+  if(!list) // do we have any images to receive the pasted history?
+    return FALSE;
 
   const int mode = dt_conf_get_int("plugins/lighttable/copy_history/pastemode");
   gboolean merge = FALSE;
@@ -1687,7 +1691,8 @@ gboolean dt_history_paste_on_list(const GList *list, gboolean undo)
 gboolean dt_history_paste_parts_on_list(const GList *list, gboolean undo)
 {
   if(darktable.view_manager->copy_paste.copied_imageid <= 0) return FALSE;
-  if(g_list_length((GList *)list) < 1) return FALSE;
+  if(!list) // do we have any images to receive the pasted history?
+    return FALSE;
 
   const int mode = dt_conf_get_int("plugins/lighttable/copy_history/pastemode");
   gboolean merge = FALSE;
@@ -1709,8 +1714,7 @@ gboolean dt_history_paste_parts_on_list(const GList *list, gboolean undo)
   }
 
   if(undo) dt_undo_start_group(darktable.undo, DT_UNDO_LT_HISTORY);
-  GList *l = l_copy;
-  while(l)
+  for (const GList *l = l_copy; l; l = g_list_next(l))
   {
     const int dest = GPOINTER_TO_INT(l->data);
     dt_history_copy_and_paste_on_image(darktable.view_manager->copy_paste.copied_imageid,
@@ -1718,7 +1722,6 @@ gboolean dt_history_paste_parts_on_list(const GList *list, gboolean undo)
                                        darktable.view_manager->copy_paste.selops,
                                        darktable.view_manager->copy_paste.copy_iop_order,
                                        darktable.view_manager->copy_paste.full_copy);
-    l = g_list_next(l);
   }
   if(undo) dt_undo_end_group(darktable.undo);
 
@@ -1728,7 +1731,8 @@ gboolean dt_history_paste_parts_on_list(const GList *list, gboolean undo)
 
 gboolean dt_history_delete_on_list(const GList *list, gboolean undo)
 {
-  if(g_list_length((GList *)list) < 1) return FALSE;
+  if(!list)  // do we have any images on which to operate?
+    return FALSE;
 
   if(undo) dt_undo_start_group(darktable.undo, DT_UNDO_LT_HISTORY);
 

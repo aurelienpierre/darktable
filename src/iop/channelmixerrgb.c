@@ -385,7 +385,7 @@ void init_presets(dt_iop_module_so_t *self)
                              self->version(), &p, sizeof(p), 1, DEVELOP_BLEND_CS_RGB_SCENE);
 
   // Kodak ?
-  // can't find spectral sensivity curves and the illuminant under wich they are produced,
+  // can't find spectral sensivity curves and the illuminant under which they are produced,
   // so ¯\_(ツ)_/¯
 
   // basic channel-mixer
@@ -2728,7 +2728,7 @@ static void update_illuminants(dt_iop_module_t *self)
  *
  * Also, the R, G, B sliders have a background color gradient that shows the actual R, G, B sensors
  * used by the selected chromatic adaptation. Each chromatic adaptation method uses a different RGB space,
- * called LMS in the litterature (but it's only a special-purpose RGB space for all we care here),
+ * called LMS in the literature (but it's only a special-purpose RGB space for all we care here),
  * which primaries are projected to sRGB colors, to be displayed in the GUI, so users may get a feeling
  * of what colors they will get.
  **/
@@ -3039,7 +3039,7 @@ static gboolean illuminant_color_draw(GtkWidget *widget, cairo_t *crf, gpointer 
   width -= 2* INNER_PADDING;
   height -= 2 * margin;
 
-  // Paint illuminant color - we need to recompute it in full in case camera RAW is choosen
+  // Paint illuminant color - we need to recompute it in full in case camera RAW is chosen
   float x = p->x;
   float y = p->y;
   float RGB[4] = { 0 };
@@ -3262,9 +3262,8 @@ void reload_defaults(dt_iop_module_t *module)
   d->illuminant = module->get_f("illuminant")->Enum.Default;
   d->adaptation = module->get_f("adaptation")->Enum.Default;
 
-  gchar *workflow = dt_conf_get_string("plugins/darkroom/chromatic-adaptation");
-  const gboolean is_modern = strcmp(workflow, "modern") == 0;
-  g_free(workflow);
+  const gboolean is_modern =
+    dt_conf_is_equal("plugins/darkroom/chromatic-adaptation", "modern");
 
   // note that if there is already an instance of this module with an
   // adaptation set we default to RGB (none) in this instance.
@@ -3645,8 +3644,10 @@ void gui_init(struct dt_iop_module_t *self)
   dt_bauhaus_widget_set_label(g->checkers_list, NULL, _("chart"));
   dt_bauhaus_combobox_add(g->checkers_list, _("Xrite ColorChecker 24 pre-2014"));
   dt_bauhaus_combobox_add(g->checkers_list, _("Xrite ColorChecker 24 post-2014"));
-  dt_bauhaus_combobox_add(g->checkers_list, _("Datacolor SpyderCheckr 24"));
-  dt_bauhaus_combobox_add(g->checkers_list, _("Datacolor SpyderCheckr 48"));
+  dt_bauhaus_combobox_add(g->checkers_list, _("Datacolor SpyderCheckr 24 pre-2018"));
+  dt_bauhaus_combobox_add(g->checkers_list, _("Datacolor SpyderCheckr 24 post-2018"));
+  dt_bauhaus_combobox_add(g->checkers_list, _("Datacolor SpyderCheckr 48 pre-2018"));
+  dt_bauhaus_combobox_add(g->checkers_list, _("Datacolor SpyderCheckr 48 post-2018"));
   g_signal_connect(G_OBJECT(g->checkers_list), "value-changed", G_CALLBACK(checker_changed_callback), self);
   gtk_widget_set_tooltip_text(g->checkers_list, _("choose the vendor and the type of your chart"));
   gtk_box_pack_start(GTK_BOX(g->collapsible), GTK_WIDGET(g->checkers_list), TRUE, TRUE, 0);

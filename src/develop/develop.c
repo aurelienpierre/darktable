@@ -1126,7 +1126,7 @@ void dt_dev_reload_history_items(dt_develop_t *dev)
       // we have to ensure that the name of the widget is correct
       GtkWidget *wlabel;
       GList *childs = gtk_container_get_children(GTK_CONTAINER(module->expander));
-      GtkWidget *header = gtk_bin_get_child(GTK_BIN(g_list_nth_data(childs, 0)));
+      GtkWidget *header = gtk_bin_get_child(GTK_BIN(childs->data));
       g_list_free(childs);
 
       childs = gtk_container_get_children(GTK_CONTAINER(header));
@@ -1408,11 +1408,10 @@ static gboolean _dev_auto_apply_presets(dt_develop_t *dev)
   const gboolean is_scene_referred = strcmp(workflow, "scene-referred") == 0;
   const gboolean is_display_referred = strcmp(workflow, "display-referred") == 0;
   const gboolean is_workflow_none = strcmp(workflow, "none") == 0;
-
-  workflow = dt_conf_get_string("plugins/darkroom/chromatic-adaptation");
-  const gboolean is_modern_chroma = strcmp(workflow, "modern") == 0;
-
   g_free(workflow);
+
+  const gboolean is_modern_chroma =
+    dt_conf_is_equal("plugins/darkroom/chromatic-adaptation", "modern");
 
   //  Add scene-referred workflow
   //  Note that we cannot use a preset for FilmicRGB as the default values are
@@ -1543,7 +1542,7 @@ static gboolean _dev_auto_apply_presets(dt_develop_t *dev)
     }
     else
     {
-      // we have no auto-apply order, so apply iop order, depending of the worflow
+      // we have no auto-apply order, so apply iop order, depending of the workflow
       GList *iop_list;
       if(is_scene_referred || is_workflow_none)
         iop_list = dt_ioppr_get_iop_order_list_version(DT_IOP_ORDER_V30);
@@ -1621,11 +1620,12 @@ static void _dev_merge_history(dt_develop_t *dev, const int imgid)
       // get all rowids
       GList *rowids = NULL;
 
+      // get the rowids in descending order since building the list will reverse the order
       DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
-                                  "SELECT rowid FROM memory.history ORDER BY rowid ASC",
+                                  "SELECT rowid FROM memory.history ORDER BY rowid DESC",
                                   -1, &stmt, NULL);
       while(sqlite3_step(stmt) == SQLITE_ROW)
-        rowids = g_list_append(rowids, GINT_TO_POINTER(sqlite3_column_int(stmt, 0)));
+        rowids = g_list_prepend(rowids, GINT_TO_POINTER(sqlite3_column_int(stmt, 0)));
       sqlite3_finalize(stmt);
 
       // update num accordingly

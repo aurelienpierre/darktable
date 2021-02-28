@@ -420,7 +420,7 @@ static bool _exif_decode_xmp_data(dt_image_t *img, Exiv2::XmpData &xmpData, int 
 {
   // as this can be called several times during the image lifetime, clean up first
   GList *imgs = NULL;
-  imgs = g_list_append(imgs, GINT_TO_POINTER(img->id));
+  imgs = g_list_prepend(imgs, GINT_TO_POINTER(img->id));
   try
   {
     Exiv2::XmpData::iterator pos;
@@ -1027,7 +1027,7 @@ static bool _exif_decode_exif_data(dt_image_t *img, Exiv2::ExifData &exifData)
       dt_strlcpy_to_utf8(img->exif_lens, sizeof(img->exif_lens), pos, exifData);
     }
 
-    // finaly the lens has only numbers and parentheses, let's try to use
+    // finally the lens has only numbers and parentheses, let's try to use
     // Exif.Photo.LensModel if defined.
 
     std::string lens(img->exif_lens);
@@ -1345,7 +1345,7 @@ void dt_exif_apply_default_metadata(dt_image_t *img)
     if(img->id > 0 && str != NULL && str[0] != '\0')
     {
       GList *imgs = NULL;
-      imgs = g_list_append(imgs, GINT_TO_POINTER(img->id));
+      imgs = g_list_prepend(imgs, GINT_TO_POINTER(img->id));
       dt_tag_attach_string_list(str, imgs, FALSE);
       g_list_free(imgs);
     }
@@ -2705,9 +2705,9 @@ static gboolean _image_altered_deprecated(const uint32_t imgid)
 {
   sqlite3_stmt *stmt;
 
-  char *workflow = dt_conf_get_string("plugins/darkroom/workflow");
-  const gboolean basecurve_auto_apply = strcmp(workflow, "display-referred") == 0;
-  g_free(workflow);
+  const gboolean basecurve_auto_apply =
+    dt_conf_is_equal("plugins/darkroom/workflow", "display-referred");
+
   const gboolean sharpen_auto_apply = dt_conf_get_bool("plugins/darkroom/sharpen/auto_apply");
 
   char query[1024] = { 0 };
@@ -3023,7 +3023,7 @@ int dt_exif_xmp_read(dt_image_t *img, const char *filename, const int history_on
         iop_order_list = g_list_append(iop_order_list, e);
       }
 
-      // and finally reoder the full list based on the iop-order
+      // and finally reorder the full list based on the iop-order
 
       iop_order_list = g_list_sort(iop_order_list, dt_sort_iop_list_by_order_f);
     }

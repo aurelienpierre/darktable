@@ -1080,14 +1080,14 @@ GList *dt_collection_get(const dt_collection_t *collection, int limit, gboolean 
     while(sqlite3_step(stmt) == SQLITE_ROW)
     {
       const int imgid = sqlite3_column_int(stmt, 0);
-      list = g_list_append(list, GINT_TO_POINTER(imgid));
+      list = g_list_prepend(list, GINT_TO_POINTER(imgid));
     }
 
     sqlite3_finalize(stmt);
     g_free(q);
   }
 
-  return list;
+  return g_list_reverse(list);  // list built in reverse order, so un-reverse it
 }
 
 GList *dt_collection_get_all(const dt_collection_t *collection, int limit)
@@ -1613,14 +1613,16 @@ static gchar *get_query_string(const dt_collection_properties_t property, const 
 
     case DT_COLLECTION_PROP_TAG: // tag
     {
-      char *sensitive = dt_conf_get_string("plugins/lighttable/tagging/case_sensitivity");
+      const gboolean is_insensitive =
+        dt_conf_is_equal("plugins/lighttable/tagging/case_sensitivity", "insensitive");
+
       if(!strcmp(escaped_text, _("not tagged")))
       {
         query = g_strdup_printf("(id NOT IN (SELECT DISTINCT imgid FROM main.tagged_images AS a "
                                        "JOIN data.tags AS b ON a.tagid = b.id "
                                        "AND SUBSTR(name, 1, 10) <> 'darktable|'))");
       }
-      else if(!strcmp(sensitive, _("insensitive")))
+      else if(is_insensitive)
       {
         if ((escaped_length > 0) && (escaped_text[escaped_length-1] == '*'))
         {
@@ -1670,7 +1672,6 @@ static gchar *get_query_string(const dt_collection_properties_t property, const 
                                   escaped_text);
         }
       }
-      g_free(sensitive);
     }
     break;
 
@@ -2001,7 +2002,7 @@ void dt_collection_update_query(const dt_collection_t *collection, dt_collection
   int next = -1;
   if(!collection->clone)
   {
-    if(g_list_length(list) > 0)
+    if(list)
     {
       // for changing offsets, thumbtable needs to know the first untouched imageid after the list
       // we do this here
@@ -2165,6 +2166,7 @@ void dt_collection_hint_message(const dt_collection_t *collection)
 
   int c = dt_collection_get_count_no_group(collection);
   int cs = dt_collection_get_selected_count(collection);
+  g_list_free(selected_imgids);
 
   if(cs == 1)
   {
@@ -2338,18 +2340,13 @@ void dt_collection_move_before(const int32_t image_id, GList * selected_images)
     return;
   }
 
-  const guint selected_images_length = g_list_length(selected_images);
-
-  if (selected_images_length == 0)
-  {
-    return;
-  }
-
   const uint32_t tagid = darktable.collection->tagid;
   // getting the position of the target image
   const int64_t target_image_pos = dt_collection_get_image_position(image_id, tagid);
   if (target_image_pos >= 0)
   {
+    const guint selected_images_length = g_list_length(selected_images);
+
     dt_collection_shift_image_positions(selected_images_length, target_image_pos, tagid);
 
     sqlite3_stmt *stmt = NULL;

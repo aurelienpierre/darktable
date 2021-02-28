@@ -868,7 +868,7 @@ static gboolean _event_rating_release(GtkWidget *widget, GdkEventButton *event, 
     {
       dt_ratings_apply_on_image(thumb->imgid, rating, TRUE, TRUE, TRUE);
       dt_collection_update_query(darktable.collection, DT_COLLECTION_CHANGE_RELOAD,
-                                 g_list_append(NULL, GINT_TO_POINTER(thumb->imgid)));
+                                 g_list_prepend(NULL, GINT_TO_POINTER(thumb->imgid)));
     }
   }
   return TRUE;
@@ -969,10 +969,8 @@ static void _dt_collection_changed_callback(gpointer instance, dt_collection_cha
   }
 }
 
-static void _dt_selection_changed_callback(gpointer instance, gpointer user_data)
+void dt_thumbnail_update_selection(dt_thumbnail_t *thumb)
 {
-  if(!user_data) return;
-  dt_thumbnail_t *thumb = (dt_thumbnail_t *)user_data;
   if(!thumb) return;
   if(!gtk_widget_is_visible(thumb->w_main)) return;
 
@@ -994,6 +992,12 @@ static void _dt_selection_changed_callback(gpointer instance, gpointer user_data
   }
 }
 
+static void _dt_selection_changed_callback(gpointer instance, gpointer user_data)
+{
+  if(!user_data) return;
+  dt_thumbnail_update_selection((dt_thumbnail_t *)user_data);
+}
+
 static void _dt_active_images_callback(gpointer instance, gpointer user_data)
 {
   if(!user_data) return;
@@ -1001,8 +1005,7 @@ static void _dt_active_images_callback(gpointer instance, gpointer user_data)
   if(!thumb) return;
 
   gboolean active = FALSE;
-  GSList *l = darktable.view_manager->active_images;
-  while(l)
+  for(GSList *l = darktable.view_manager->active_images; l; l = g_slist_next(l))
   {
     int id = GPOINTER_TO_INT(l->data);
     if(id == thumb->imgid)
@@ -1010,7 +1013,6 @@ static void _dt_active_images_callback(gpointer instance, gpointer user_data)
       active = TRUE;
       break;
     }
-    l = g_slist_next(l);
   }
 
   // if there's a change, update the thumb
