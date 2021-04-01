@@ -493,11 +493,7 @@ static inline void downscale_vector(float vector[4], const float scaling)
 {
   // check zero or NaN
   const int valid = (scaling > NORM_MIN) && !isnan(scaling);
-
-#ifdef _OPENMP
-#pragma omp simd aligned(vector:16)
-#endif
-  for(size_t c = 0; c < 4; c++) vector[c] = (valid) ? vector[c] / (scaling + NORM_MIN) : vector[c] / NORM_MIN;
+  for(size_t c = 0; c < 3; c++) vector[c] = (valid) ? vector[c] / (scaling + NORM_MIN) : vector[c] / NORM_MIN;
 }
 
 
@@ -507,11 +503,7 @@ static inline void downscale_vector(float vector[4], const float scaling)
 static inline void upscale_vector(float vector[4], const float scaling)
 {
   const int valid = (scaling > NORM_MIN) && !isnan(scaling);
-
-#ifdef _OPENMP
-#pragma omp simd aligned(vector:16)
-#endif
-  for(size_t c = 0; c < 4; c++) vector[c] = (valid) ? vector[c] * (scaling + NORM_MIN) : vector[c] * NORM_MIN;
+  for(size_t c = 0; c < 3; c++) vector[c] = (valid) ? vector[c] * (scaling + NORM_MIN) : vector[c] * NORM_MIN;
 }
 
 
@@ -586,28 +578,20 @@ static inline void luma_chroma(const float input[4], const float saturation[4], 
 
   // Compute ratios and a flat colorfulness adjustment for the whole pixel
   float coeff_ratio = 0.f;
+
   if(version == CHANNELMIXERRGB_V_1)
   {
-    #ifdef _OPENMP
-    #pragma omp simd aligned(output, saturation:16) reduction(+:coeff_ratio)
-    #endif
     for(size_t c = 0; c < 3; c++)
       coeff_ratio += sqf(1.0f - output[c]) * saturation[c];
   }
   else
   {
-    #ifdef _OPENMP
-    #pragma omp simd aligned(output, saturation:16) reduction(+:coeff_ratio)
-    #endif
     for(size_t c = 0; c < 3; c++)
       coeff_ratio += output[c] * saturation[c];
   }
   coeff_ratio /= 3.f;
 
   // Adjust the RGB ratios with the pixel correction
-#ifdef _OPENMP
-#pragma omp simd aligned(output:16)
-#endif
   for(size_t c = 0; c < 3; c++)
   {
     // if the ratio was already invalid (negative), we accept the result to be invalid too
@@ -619,10 +603,6 @@ static inline void luma_chroma(const float input[4], const float saturation[4], 
 
   // Apply colorfulness adjustment channel-wise and repack with lightness to get LMS back
   norm *= fmaxf(1.f + mix / avg, 0.f);
-
-#ifdef _OPENMP
-#pragma omp simd aligned(output:16)
-#endif
   for(size_t c = 0; c < 3; c++) output[c] *= norm;
 }
 
@@ -640,16 +620,14 @@ static inline void loop_switch(const float *const restrict in, float *const rest
   aligned(in, out, XYZ_to_RGB, RGB_to_XYZ, MIX:64) aligned(illuminant, saturation, lightness, grey:16)\
   schedule(simd:static)
 #endif
-  for(size_t k = 0; k < height * width * ch; k += 4)
+  for(size_t k = 0; k < height * width * ch; k += ch)
   {
     // intermediate temp buffers
     float DT_ALIGNED_PIXEL temp_one[4];
     float DT_ALIGNED_PIXEL temp_two[4];
 
-    #ifdef _OPENMP
-    #pragma omp simd aligned(temp_two:16) aligned(in:64)
-    #endif
-    for(size_t c = 0; c < 3; c++) temp_two[c] = (clip) ? fmaxf(in[k + c], 0.0f) : in[k + c];
+    for(size_t c = 0; c < 3; c++)
+      temp_two[c] = (clip) ? fmaxf(in[k + c], 0.0f) : in[k + c];
 
     /* WE START IN PIPELINE RGB */
 
@@ -745,9 +723,6 @@ static inline void loop_switch(const float *const restrict in, float *const rest
         // Convert from RGB to XYZ
         dot_product(temp_one, RGB_to_XYZ, temp_two);
 
-        #ifdef _OPENMP
-        #pragma omp simd aligned(temp_one, temp_two:16)
-        #endif
         for(size_t c = 0; c < 3; ++c) temp_one[c] = temp_two[c];
         break;
       }
@@ -781,19 +756,13 @@ static inline void loop_switch(const float *const restrict in, float *const rest
     /* FROM HERE WE ARE IN LMS, XYZ OR PIPELINE RGB depending on user param - DATA IS IN temp_one */
 
     // Clip in LMS
-    #ifdef _OPENMP
-    #pragma omp simd aligned(temp_one:16)
-    #endif
-    for(size_t c = 0; c < 3; c++) temp_one[c] = (clip) ? fmaxf(temp_one[c], 0.0f) : temp_one[c];
+    if(clip) for(size_t c = 0; c < 3; c++) temp_one[c] = fmaxf(temp_one[c], 0.0f);
 
     // Apply lightness / saturation adjustment
     luma_chroma(temp_one, saturation, lightness, temp_two, version);
 
     // Clip in LMS
-    #ifdef _OPENMP
-    #pragma omp simd aligned(temp_two:16)
-    #endif
-    for(size_t c = 0; c < 3; c++) temp_two[c] = (clip) ? fmaxf(temp_two[c], 0.0f) : temp_two[c];
+    if(clip) for(size_t c = 0; c < 3; c++) temp_two[c] = fmaxf(temp_two[c], 0.0f);
 
     // Save
     if(apply_grey)
@@ -829,18 +798,15 @@ static inline void loop_switch(const float *const restrict in, float *const rest
       /* FROM HERE WE ARE MANDATORILY IN XYZ - DATA IS IN temp_one */
 
       // Clip in XYZ
-      #ifdef _OPENMP
-      #pragma omp simd aligned(temp_one:16)
-      #endif
-      for(size_t c = 0; c < 3; c++) temp_one[c] = (clip) ? fmaxf(temp_one[c], 0.0f) : temp_one[c];
+      if(clip) for(size_t c = 0; c < 3; c++) temp_one[c] = fmaxf(temp_one[c], 0.0f);
 
       // Convert back to RGB
       dot_product(temp_one, XYZ_to_RGB, temp_two);
 
-      #ifdef _OPENMP
-      #pragma omp simd aligned(temp_two:16) aligned(out:64)
-      #endif
-      for(size_t c = 0; c < 3; c++) out[k + c] = (clip) ? fmaxf(temp_two[c], 0.0f) : temp_two[c];
+      if(clip)
+        for(size_t c = 0; c < 3; c++) out[k + c] = fmaxf(temp_two[c], 0.0f);
+      else
+        for(size_t c = 0; c < 3; c++) out[k + c] = temp_two[c];
 
       out[k + 3] = in[k + 3]; // alpha mask
     }
@@ -1452,11 +1418,25 @@ void extract_color_checker(const float *const restrict in, float *const restrict
   // solve the equation to find the scene illuminant
   float illuminant[4] = { .0f };
   for(size_t c = 0; c < 3; c++) illuminant[c] = D50_LMS[c] * LMS_grey_test[c] / LMS_grey_ref[c];
-  //illuminant[3] = 1.f;
 
   // convert back the illuminant to XYZ then xyY
   float illuminant_XYZ[4], illuminant_xyY[4] = { .0f };
+  convert_any_LMS_to_XYZ(illuminant, illuminant_XYZ, kind);
+  const float Y_illu = illuminant_XYZ[1];
+  for(size_t c = 0; c < 3; c++) illuminant_XYZ[c] /= Y_illu;
+  dt_XYZ_to_xyY(illuminant_XYZ, illuminant_xyY);
+
+  // save the illuminant in GUI struct for commit
+  g->xy[0] = illuminant_xyY[0];
+  g->xy[1] = illuminant_xyY[1];
+
+  // and recompute back the LMS to be sure we use the parameters that will be computed later
+  illuminant_xy_to_XYZ(illuminant_xyY[0], illuminant_xyY[1], illuminant_XYZ);
+  convert_any_XYZ_to_LMS(illuminant_XYZ, illuminant, kind);
+  const float p = powf(0.818155f / illuminant[2], 0.0834f);
+
   /* White-balance the patches */
+  for(size_t k = 0; k < g->checker->patches; k++)
   {
     // keep in synch with loop_switch() from process()
     float *const sample = patches + k * 4;
@@ -1494,7 +1474,7 @@ void extract_color_checker(const float *const restrict in, float *const restrict
       case DT_ADAPTATION_LAST:
       {
         // No white balance.
-        for(size_t c = 0; c < 4; ++c) temp[c] = LMS[c];
+        for(size_t c = 0; c < 3; ++c) temp[c] = LMS[c];
         break;
       }
     }
@@ -2533,9 +2513,6 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
   }
 
   // just in case compiler feels clever and uses SSE 4×1 dot product
-  d->MIX[0][CHANNEL_SIZE - 1] = 0.0f;
-  d->MIX[1][CHANNEL_SIZE - 1] = 0.0f;
-  d->MIX[2][CHANNEL_SIZE - 1] = 0.0f;
   d->saturation[CHANNEL_SIZE - 1] = 0.0f;
   d->lightness[CHANNEL_SIZE - 1] = 0.0f;
   d->grey[CHANNEL_SIZE - 1] = 0.0f;
@@ -2563,7 +2540,7 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
 
   // Convert illuminant from XYZ to Bradford modified LMS
   convert_any_XYZ_to_LMS(XYZ, d->illuminant, d->adaptation);
-  d->illuminant[3] = 1.f;
+  d->illuminant[3] = 0.f;
 
   //fprintf(stdout, "illuminant: %i\n", p->illuminant);
   //fprintf(stdout, "x: %f, y: %f\n", x, y);
