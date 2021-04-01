@@ -291,8 +291,8 @@ endif()
 # Find all other required libraries for building
 #
 # GTK3 does pull glib, but this allows us to check for the version
-find_package(Glib 2.40 REQUIRED)
-add_definitions("-DGLIB_VERSION_MIN_REQUIRED=GLIB_VERSION_2_40")
+find_package(Glib 2.56 REQUIRED)
+add_definitions("-DGLIB_VERSION_MIN_REQUIRED=GLIB_VERSION_2_56")
 add_definitions("-DGLIB_VERSION_MAX_ALLOWED=GLIB_VERSION_MIN_REQUIRED")
 include_directories(SYSTEM ${Glib_INCLUDE_DIRS})
 list(APPEND LIBS ${Glib_LIBRARIES})
@@ -513,7 +513,7 @@ endif(USE_OPENCL)
 
 
 if(Gphoto2_FOUND)
-  set(SOURCES ${SOURCES} "common/camera_control.c" "control/jobs/camera_jobs.c" "gui/camera_import_dialog.c" )
+  set(SOURCES ${SOURCES} "common/camera_control.c" "control/jobs/camera_jobs.c" )
   add_definitions("-DHAVE_GPHOTO2")
 
   # Gphoto 2.5 changed the prototype of a set of callback functions.

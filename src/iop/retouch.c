@@ -271,8 +271,7 @@ static dt_masks_point_group_t *rt_get_mask_point_group(dt_iop_module_t *self, in
   const dt_masks_form_t *grp = dt_masks_get_from_id(self->dev, bp->mask_id);
   if(grp && (grp->type & DT_MASKS_GROUP))
   {
-    GList *forms = g_list_first(grp->points);
-    while(forms)
+    for(const GList *forms = grp->points; forms; forms = g_list_next(forms))
     {
       dt_masks_point_group_t *grpt = (dt_masks_point_group_t *)forms->data;
       if(grpt->formid == formid)
@@ -280,7 +279,6 @@ static dt_masks_point_group_t *rt_get_mask_point_group(dt_iop_module_t *self, in
         form_point_group = grpt;
         break;
       }
-      forms = g_list_next(forms);
     }
   }
 
@@ -590,9 +588,8 @@ static void rt_resynch_params(struct dt_iop_module_t *self)
   dt_masks_form_t *grp = dt_masks_get_from_id(darktable.develop, bp->mask_id);
   if(grp && (grp->type & DT_MASKS_GROUP))
   {
-    GList *forms = g_list_first(grp->points);
     int new_form_index = 0;
-    while((new_form_index < RETOUCH_NO_FORMS) && forms)
+    for(GList *forms = grp->points; (new_form_index < RETOUCH_NO_FORMS) && forms; forms = g_list_next(forms))
     {
       dt_masks_point_group_t *grpt = (dt_masks_point_group_t *)forms->data;
       if(grpt)
@@ -640,8 +637,6 @@ static void rt_resynch_params(struct dt_iop_module_t *self)
           }
         }
       }
-
-      forms = g_list_next(forms);
     }
   }
 
@@ -786,7 +781,7 @@ static int rt_shape_is_being_added(dt_iop_module_t *self, const int shape_type)
   {
     if(self->dev->form_visible->type & DT_MASKS_GROUP)
     {
-      GList *forms = g_list_first(self->dev->form_visible->points);
+      GList *forms = self->dev->form_visible->points;
       if(forms)
       {
         dt_masks_point_group_t *grpt = (dt_masks_point_group_t *)forms->data;
@@ -1558,7 +1553,7 @@ static gboolean rt_edit_masks_callback(GtkWidget *widget, GdkEventButton *event,
     dt_masks_form_t *grp = dt_masks_get_from_id(darktable.develop, self->blend_params->mask_id);
     if(grp && (grp->type & DT_MASKS_GROUP) && grp->points)
     {
-      const int control_button_pressed = event->state & GDK_CONTROL_MASK;
+      const gboolean control_button_pressed = dt_modifier_is(event->state, GDK_CONTROL_MASK);
 
       switch(bd->masks_shown)
       {
@@ -1598,8 +1593,7 @@ static gboolean rt_add_shape_callback(GtkWidget *widget, GdkEventButton *e, dt_i
 
   if(darktable.gui->reset) return FALSE;
 
-  GdkModifierType modifiers = gtk_accelerator_get_default_mod_mask();
-  const int creation_continuous = ((e->state & modifiers) == GDK_CONTROL_MASK);
+  const int creation_continuous = dt_modifier_is(e->state, GDK_CONTROL_MASK);
 
   rt_add_shape(widget, creation_continuous, self);
 
@@ -1636,8 +1630,7 @@ static gboolean rt_select_algorithm_callback(GtkToggleButton *togglebutton, GdkE
   gboolean accept = TRUE;
 
   const int index = rt_get_selected_shape_index(p);
-  GdkModifierType modifiers = gtk_accelerator_get_default_mod_mask();
-  if(index >= 0 && ((e->state & modifiers) == GDK_CONTROL_MASK))
+  if(index >= 0 && dt_modifier_is(e->state, GDK_CONTROL_MASK))
   {
     if(new_algo != p->rt_forms[index].algorithm)
     {
@@ -1667,7 +1660,7 @@ static gboolean rt_select_algorithm_callback(GtkToggleButton *togglebutton, GdkE
     return FALSE;
   }
 
-  if(index >= 0 && ((e->state & modifiers) == GDK_CONTROL_MASK))
+  if(index >= 0 && dt_modifier_is(e->state, GDK_CONTROL_MASK))
   {
     if(p->algorithm != p->rt_forms[index].algorithm)
     {
@@ -2318,8 +2311,7 @@ static void rt_compute_roi_in(struct dt_iop_module_t *self, struct dt_dev_pixelp
   const dt_masks_form_t *grp = dt_masks_get_from_id_ext(piece->pipe->forms, bp->mask_id);
   if(grp && (grp->type & DT_MASKS_GROUP))
   {
-    GList *forms = g_list_first(grp->points);
-    while(forms)
+    for(const GList *forms = grp->points; forms; forms = g_list_next(forms))
     {
       const dt_masks_point_group_t *grpt = (dt_masks_point_group_t *)forms->data;
       if(grpt)
@@ -2328,7 +2320,6 @@ static void rt_compute_roi_in(struct dt_iop_module_t *self, struct dt_dev_pixelp
         const dt_iop_retouch_algo_type_t algo = rt_get_algorithm_from_formid(p, formid);
         if(algo == DT_IOP_RETOUCH_FILL)
         {
-          forms = g_list_next(forms);
           continue;
         }
 
@@ -2341,7 +2332,6 @@ static void rt_compute_roi_in(struct dt_iop_module_t *self, struct dt_dev_pixelp
           int fl, ft, fw, fh;
           if(!dt_masks_get_area(self, piece, form, &fw, &fh, &fl, &ft))
           {
-            forms = g_list_next(forms);
             continue;
           }
 
@@ -2350,7 +2340,6 @@ static void rt_compute_roi_in(struct dt_iop_module_t *self, struct dt_dev_pixelp
           if(ft >= roi_in->y + roi_in->height || ft + fh <= roi_in->y || fl >= roi_in->x + roi_in->width
              || fl + fw <= roi_in->x)
           {
-            forms = g_list_next(forms);
             continue;
           }
 
@@ -2390,8 +2379,6 @@ static void rt_compute_roi_in(struct dt_iop_module_t *self, struct dt_dev_pixelp
           }
         }
       }
-
-      forms = g_list_next(forms);
     }
   }
 
@@ -2420,8 +2407,7 @@ static void rt_extend_roi_in_from_source_clones(struct dt_iop_module_t *self, st
   const dt_masks_form_t *grp = dt_masks_get_from_id_ext(piece->pipe->forms, bp->mask_id);
   if(grp && (grp->type & DT_MASKS_GROUP))
   {
-    GList *forms = g_list_first(grp->points);
-    while(forms)
+    for(const GList *forms = grp->points; forms; forms = g_list_next(forms))
     {
       const dt_masks_point_group_t *grpt = (dt_masks_point_group_t *)forms->data;
       if(grpt)
@@ -2436,7 +2422,6 @@ static void rt_extend_roi_in_from_source_clones(struct dt_iop_module_t *self, st
         // only process clone and heal
         if(algo != DT_IOP_RETOUCH_HEAL && algo != DT_IOP_RETOUCH_CLONE)
         {
-          forms = g_list_next(forms);
           continue;
         }
 
@@ -2448,7 +2433,6 @@ static void rt_extend_roi_in_from_source_clones(struct dt_iop_module_t *self, st
           int fl, ft, fw, fh;
           if(!dt_masks_get_source_area(self, piece, form, &fw, &fh, &fl, &ft))
           {
-            forms = g_list_next(forms);
             continue;
           }
           fw *= roi_in->scale, fh *= roi_in->scale, fl *= roi_in->scale, ft *= roi_in->scale;
@@ -2458,7 +2442,6 @@ static void rt_extend_roi_in_from_source_clones(struct dt_iop_module_t *self, st
           int dx = 0, dy = 0;
           if(!rt_masks_get_delta_to_destination(self, piece, roi_in, form, &dx, &dy))
           {
-            forms = g_list_next(forms);
             continue;
           }
 
@@ -2484,8 +2467,6 @@ static void rt_extend_roi_in_from_source_clones(struct dt_iop_module_t *self, st
           }
         }
       }
-
-      forms = g_list_next(forms);
     }
   }
 
@@ -2512,8 +2493,7 @@ static void rt_extend_roi_in_for_clone(struct dt_iop_module_t *self, struct dt_d
   const dt_masks_form_t *grp = dt_masks_get_from_id_ext(piece->pipe->forms, bp->mask_id);
   if(grp && (grp->type & DT_MASKS_GROUP))
   {
-    GList *forms = g_list_first(grp->points);
-    while(forms)
+    for(const GList *forms = grp->points; forms; forms = g_list_next(forms))
     {
       dt_masks_point_group_t *grpt = (dt_masks_point_group_t *)forms->data;
       if(grpt)
@@ -2523,7 +2503,6 @@ static void rt_extend_roi_in_for_clone(struct dt_iop_module_t *self, struct dt_d
 
         if(algo != DT_IOP_RETOUCH_HEAL && algo != DT_IOP_RETOUCH_CLONE)
         {
-          forms = g_list_next(forms);
           continue;
         }
 
@@ -2531,7 +2510,6 @@ static void rt_extend_roi_in_for_clone(struct dt_iop_module_t *self, struct dt_d
         dt_masks_form_t *form = dt_masks_get_from_id_ext(piece->pipe->forms, formid);
         if(form == NULL)
         {
-          forms = g_list_next(forms);
           continue;
         }
 
@@ -2539,7 +2517,6 @@ static void rt_extend_roi_in_for_clone(struct dt_iop_module_t *self, struct dt_d
         int fl_src, ft_src, fw_src, fh_src;
         if(!dt_masks_get_source_area(self, piece, form, &fw_src, &fh_src, &fl_src, &ft_src))
         {
-          forms = g_list_next(forms);
           continue;
         }
 
@@ -2552,8 +2529,6 @@ static void rt_extend_roi_in_for_clone(struct dt_iop_module_t *self, struct dt_d
           rt_extend_roi_in_from_source_clones(self, piece, roi_in, formid, fl_src, ft_src, fw_src, fh_src, &roir,
                                               &roib, &roix, &roiy);
       }
-
-      forms = g_list_next(forms);
     }
   }
 
@@ -3299,14 +3274,12 @@ static void rt_process_forms(float *layer, dwt_params_t *const wt_p, const int s
     const dt_masks_form_t *grp = dt_masks_get_from_id_ext(piece->pipe->forms, bp->mask_id);
     if(grp && (grp->type & DT_MASKS_GROUP))
     {
-      GList *forms = g_list_first(grp->points);
-      while(forms)
+      for(const GList *forms = grp->points; forms; forms = g_list_next(forms))
       {
         const dt_masks_point_group_t *grpt = (dt_masks_point_group_t *)forms->data;
         if(grpt == NULL)
         {
           fprintf(stderr, "rt_process_forms: invalid form\n");
-          forms = g_list_next(forms);
           continue;
         }
         const int formid = grpt->formid;
@@ -3314,7 +3287,6 @@ static void rt_process_forms(float *layer, dwt_params_t *const wt_p, const int s
         if(formid == 0)
         {
           fprintf(stderr, "rt_process_forms: form is null\n");
-          forms = g_list_next(forms);
           continue;
         }
         const int index = rt_get_index_from_formid(p, formid);
@@ -3322,14 +3294,12 @@ static void rt_process_forms(float *layer, dwt_params_t *const wt_p, const int s
         {
           // FIXME: we get this error when user go back in history, so forms are the same but the array has changed
           fprintf(stderr, "rt_process_forms: missing form=%i from array\n", formid);
-          forms = g_list_next(forms);
           continue;
         }
 
         // only process current scale
         if(p->rt_forms[index].scale != scale)
         {
-          forms = g_list_next(forms);
           continue;
         }
 
@@ -3338,14 +3308,12 @@ static void rt_process_forms(float *layer, dwt_params_t *const wt_p, const int s
         if(form == NULL)
         {
           fprintf(stderr, "rt_process_forms: missing form=%i from masks\n", formid);
-          forms = g_list_next(forms);
           continue;
         }
 
         // if the form is outside the roi, we just skip it
         if(!rt_masks_form_is_in_roi(self, piece, form, roi_layer, roi_layer))
         {
-          forms = g_list_next(forms);
           continue;
         }
 
@@ -3357,7 +3325,6 @@ static void rt_process_forms(float *layer, dwt_params_t *const wt_p, const int s
         if(mask == NULL)
         {
           fprintf(stderr, "rt_process_forms: error retrieving mask\n");
-          forms = g_list_next(forms);
           continue;
         }
 
@@ -3369,7 +3336,6 @@ static void rt_process_forms(float *layer, dwt_params_t *const wt_p, const int s
         {
           if(!rt_masks_get_delta_to_destination(self, piece, roi_layer, form, &dx, &dy))
           {
-            forms = g_list_next(forms);
             if(mask) dt_free_align(mask);
             continue;
           }
@@ -3390,7 +3356,6 @@ static void rt_process_forms(float *layer, dwt_params_t *const wt_p, const int s
 
         if(mask_scaled == NULL)
         {
-          forms = g_list_next(forms);
           continue;
         }
 
@@ -3440,8 +3405,6 @@ static void rt_process_forms(float *layer, dwt_params_t *const wt_p, const int s
 
         if(mask) dt_free_align(mask);
         if(mask_scaled) dt_free_align(mask_scaled);
-
-        forms = g_list_next(forms);
       }
     }
   }
@@ -4112,14 +4075,12 @@ static cl_int rt_process_forms_cl(cl_mem dev_layer, dwt_params_cl_t *const wt_p,
     dt_masks_form_t *grp = dt_masks_get_from_id_ext(piece->pipe->forms, bp->mask_id);
     if(grp && (grp->type & DT_MASKS_GROUP))
     {
-      GList *forms = g_list_first(grp->points);
-      while(forms && err == CL_SUCCESS)
+      for(const GList *forms = grp->points; forms && err == CL_SUCCESS; forms = g_list_next(forms))
       {
         dt_masks_point_group_t *grpt = (dt_masks_point_group_t *)forms->data;
         if(grpt == NULL)
         {
           fprintf(stderr, "rt_process_forms: invalid form\n");
-          forms = g_list_next(forms);
           continue;
         }
         const int formid = grpt->formid;
@@ -4127,7 +4088,6 @@ static cl_int rt_process_forms_cl(cl_mem dev_layer, dwt_params_cl_t *const wt_p,
         if(formid == 0)
         {
           fprintf(stderr, "rt_process_forms: form is null\n");
-          forms = g_list_next(forms);
           continue;
         }
         const int index = rt_get_index_from_formid(p, formid);
@@ -4135,14 +4095,12 @@ static cl_int rt_process_forms_cl(cl_mem dev_layer, dwt_params_cl_t *const wt_p,
         {
           // FIXME: we get this error when user go back in history, so forms are the same but the array has changed
           fprintf(stderr, "rt_process_forms: missing form=%i from array\n", formid);
-          forms = g_list_next(forms);
           continue;
         }
 
         // only process current scale
         if(p->rt_forms[index].scale != scale)
         {
-          forms = g_list_next(forms);
           continue;
         }
 
@@ -4151,14 +4109,12 @@ static cl_int rt_process_forms_cl(cl_mem dev_layer, dwt_params_cl_t *const wt_p,
         if(form == NULL)
         {
           fprintf(stderr, "rt_process_forms: missing form=%i from masks\n", formid);
-          forms = g_list_next(forms);
           continue;
         }
 
         // if the form is outside the roi, we just skip it
         if(!rt_masks_form_is_in_roi(self, piece, form, roi_layer, roi_layer))
         {
-          forms = g_list_next(forms);
           continue;
         }
 
@@ -4170,7 +4126,6 @@ static cl_int rt_process_forms_cl(cl_mem dev_layer, dwt_params_cl_t *const wt_p,
         if(mask == NULL)
         {
           fprintf(stderr, "rt_process_forms: error retrieving mask\n");
-          forms = g_list_next(forms);
           continue;
         }
 
@@ -4182,7 +4137,6 @@ static cl_int rt_process_forms_cl(cl_mem dev_layer, dwt_params_cl_t *const wt_p,
         {
           if(!rt_masks_get_delta_to_destination(self, piece, roi_layer, form, &dx, &dy))
           {
-            forms = g_list_next(forms);
             if(mask) dt_free_align(mask);
             continue;
           }
@@ -4212,11 +4166,8 @@ static cl_int rt_process_forms_cl(cl_mem dev_layer, dwt_params_cl_t *const wt_p,
 
         if(mask_scaled == NULL && algo == DT_IOP_RETOUCH_HEAL)
         {
-          forms = g_list_next(forms);
-
           if(dev_mask_scaled) dt_opencl_release_mem_object(dev_mask_scaled);
           dev_mask_scaled = NULL;
-
           continue;
         }
 
@@ -4269,8 +4220,6 @@ static cl_int rt_process_forms_cl(cl_mem dev_layer, dwt_params_cl_t *const wt_p,
         if(mask) dt_free_align(mask);
         if(mask_scaled) dt_free_align(mask_scaled);
         if(dev_mask_scaled) dt_opencl_release_mem_object(dev_mask_scaled);
-
-        forms = g_list_next(forms);
       }
     }
   }

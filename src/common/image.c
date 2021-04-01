@@ -486,10 +486,9 @@ static void _pop_undo(gpointer user_data, const dt_undo_type_t type, dt_undo_dat
 {
   if(type == DT_UNDO_GEOTAG)
   {
-    GList *list = (GList *)data;
     int i = 0;
 
-    while(list)
+    for(GList *list = (GList *)data; list; list = g_list_next(list))
     {
       dt_undo_geotag_t *undogeotag = (dt_undo_geotag_t *)list->data;
       const dt_image_geoloc_t *geoloc = (action == DT_ACTION_UNDO) ? &undogeotag->before : &undogeotag->after;
@@ -497,7 +496,6 @@ static void _pop_undo(gpointer user_data, const dt_undo_type_t type, dt_undo_dat
       _set_location(undogeotag->imgid, geoloc);
 
       *imgs = g_list_prepend(*imgs, GINT_TO_POINTER(undogeotag->imgid));
-      list = g_list_next(list);
       i++;
     }
     if(i > 1) dt_control_log((action == DT_ACTION_UNDO)
@@ -508,10 +506,9 @@ static void _pop_undo(gpointer user_data, const dt_undo_type_t type, dt_undo_dat
   }
   else if(type == DT_UNDO_DATETIME)
   {
-    GList *list = (GList *)data;
     int i = 0;
 
-    while(list)
+    for(GList *list = (GList *)data; list; list = g_list_next(list))
     {
       dt_undo_datetime_t *undodatetime = (dt_undo_datetime_t *)list->data;
 
@@ -519,7 +516,6 @@ static void _pop_undo(gpointer user_data, const dt_undo_type_t type, dt_undo_dat
                                          ? undodatetime->before : undodatetime->after);
 
       *imgs = g_list_prepend(*imgs, GINT_TO_POINTER(undodatetime->imgid));
-      list = g_list_next(list);
       i++;
     }
     if(i > 1) dt_control_log((action == DT_ACTION_UNDO)
@@ -564,8 +560,7 @@ static void _geotag_undo_data_free(gpointer data)
 
 static void _image_set_location(GList *imgs, const dt_image_geoloc_t *geoloc, GList **undo, const gboolean undo_on)
 {
-  GList *images = imgs;
-  while(images)
+  for(GList *images = imgs; images; images = g_list_next(images))
   {
     const int32_t imgid = GPOINTER_TO_INT(images->data);
 
@@ -581,8 +576,6 @@ static void _image_set_location(GList *imgs, const dt_image_geoloc_t *geoloc, GL
     }
 
     _set_location(imgid, geoloc);
-
-    images = g_list_next(images);
   }
 }
 
@@ -620,9 +613,8 @@ void dt_image_set_location(const int32_t imgid, const dt_image_geoloc_t *geoloc,
 static void _image_set_images_locations(const GList *img, const GArray *gloc,
                                         GList **undo, const gboolean undo_on)
 {
-  GList *imgs = (GList *)img;
   int i = 0;
-  while(imgs)
+  for(GList *imgs = (GList *)img; imgs; imgs = g_list_next(imgs))
   {
     const int32_t imgid = GPOINTER_TO_INT(imgs->data);
     const dt_image_geoloc_t *geoloc = &g_array_index(gloc, dt_image_geoloc_t, i);
@@ -638,8 +630,6 @@ static void _image_set_images_locations(const GList *img, const GArray *gloc,
     }
 
     _set_location(imgid, geoloc);
-
-    imgs = g_list_next(imgs);
     i++;
   }
 }
@@ -784,8 +774,7 @@ dt_image_orientation_t dt_image_get_orientation(const int32_t imgid)
   static dt_iop_module_so_t *flip = NULL;
   if(flip == NULL)
   {
-    GList *modules = g_list_first(darktable.iop);
-    while(modules)
+    for(const GList *modules = darktable.iop; modules; modules = g_list_next(modules))
     {
       dt_iop_module_so_t *module = (dt_iop_module_so_t *)(modules->data);
       if(!strcmp(module->op, "flip"))
@@ -793,7 +782,6 @@ dt_image_orientation_t dt_image_get_orientation(const int32_t imgid)
         flip = module;
         break;
       }
-      modules = g_list_next(modules);
     }
   }
 
@@ -1165,7 +1153,6 @@ static int32_t _image_duplicate_with_version(const int32_t imgid, const int32_t 
       dt_undo_record(darktable.undo, NULL, DT_UNDO_DUPLICATE, dupundo, _pop_undo, NULL);
     }
 
-
     // make sure that the duplicate doesn't have some magic darktable| tags
     if(dt_tag_detach_by_string("darktable|changed", newid, FALSE, FALSE)
        || dt_tag_detach_by_string("darktable|exported", newid, FALSE, FALSE))
@@ -1324,8 +1311,7 @@ static int _image_read_duplicates(const uint32_t id, const char *filename, const
   // we store the xmp filename without version part in pattern to speed up string comparison later
   g_snprintf(pattern, sizeof(pattern), "%s.xmp", filename);
 
-  GList *file_iter = g_list_first(files);
-  while(file_iter != NULL)
+  for(GList *file_iter = files; file_iter; file_iter = g_list_next(file_iter))
   {
     gchar *xmpfilename = file_iter->data;
     int version = -1;
@@ -1357,9 +1343,9 @@ static int _image_read_duplicates(const uint32_t id, const char *filename, const
     int newid = id;
     int grpid = -1;
 
-    if(!count_xmps_processed)
+    if(count_xmps_processed == 0)
     {
-      //this is the first xmp processed, just update the passed-in id
+      // this is the first xmp processed, just update the passed-in id
       sqlite3_stmt *stmt;
       DT_DEBUG_SQLITE3_PREPARE_V2
         (dt_database_get(darktable.db),
@@ -1375,7 +1361,7 @@ static int _image_read_duplicates(const uint32_t id, const char *filename, const
       // dt_image_duplicate_with_version() as this version also set the group which
       // is using DT_IMAGE_CACHE_SAFE and so will write the .XMP. But we must avoid
       // this has the xmp for the duplicate is read just below.
-      newid = _image_duplicate_with_version(id, version, FALSE);
+      newid = _image_duplicate_with_version_ext(id, version);
       const dt_image_t *img = dt_image_cache_get(darktable.image_cache, id, 'r');
       grpid = img->group_id;
       dt_image_cache_read_release(darktable.image_cache, img);
@@ -1396,7 +1382,6 @@ static int _image_read_duplicates(const uint32_t id, const char *filename, const
     }
 
     count_xmps_processed++;
-    file_iter = g_list_next(file_iter);
   }
 
   g_list_free_full(files, g_free);
@@ -2437,11 +2422,9 @@ void dt_image_synch_xmps(const GList *img)
   if(!img) return;
   if(dt_conf_get_bool("write_sidecar_files"))
   {
-    const GList *imgs = img;
-    while(imgs)
+    for(const GList *imgs = img; imgs; imgs = g_list_next(imgs))
     {
       dt_image_write_sidecar_file(GPOINTER_TO_INT(imgs->data));
-      imgs = g_list_next(imgs);
     }
   }
 }
@@ -2547,9 +2530,8 @@ typedef struct dt_datetime_t
 static void _image_set_datetimes(const GList *img, const GArray *dtime,
                                  GList **undo, const gboolean undo_on)
 {
-  GList *imgs = (GList *)img;
   int i = 0;
-  while(imgs)
+  for(GList *imgs = (GList *)img; imgs; imgs = g_list_next(imgs))
   {
     const int32_t imgid = GPOINTER_TO_INT(imgs->data);
     // if char *datetime, the returned pointer is not correct => use of _datetime_t
@@ -2566,8 +2548,6 @@ static void _image_set_datetimes(const GList *img, const GArray *dtime,
     }
 
     _set_datetime(imgid, datetime->dt);
-
-    imgs = g_list_next(imgs);
     i++;
   }
 }
@@ -2591,8 +2571,7 @@ void dt_image_set_datetimes(const GList *imgs, const GArray *dtime, const gboole
 static void _image_set_datetime(const GList *img, const char *datetime,
                                 GList **undo, const gboolean undo_on)
 {
-  GList *imgs = (GList *)img;
-  while(imgs)
+  for(GList *imgs = (GList *)img; imgs;  imgs = g_list_next(imgs))
   {
     const int32_t imgid = GPOINTER_TO_INT(imgs->data);
     if(undo_on)
@@ -2607,8 +2586,6 @@ static void _image_set_datetime(const GList *img, const char *datetime,
     }
 
     _set_datetime(imgid, datetime);
-
-    imgs = g_list_next(imgs);
   }
 }
 

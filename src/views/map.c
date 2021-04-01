@@ -1385,7 +1385,7 @@ static dt_map_image_t *_view_map_get_entry_at_pos(dt_view_t *self, const double 
 {
   dt_map_t *lib = (dt_map_t *)self->data;
 
-  for(GSList *iter = lib->images; iter; iter = iter->next)
+  for(const GSList *iter = lib->images; iter; iter = g_slist_next(iter))
   {
     dt_map_image_t *entry = (dt_map_image_t *)iter->data;
     OsmGpsMapImage *image = entry->image;
@@ -1412,7 +1412,7 @@ static GList *_view_map_get_imgs_at_pos(dt_view_t *self, const double x,
   int imgid = -1;
   dt_map_image_t *entry = NULL;
 
-  for(GSList *iter = lib->images; iter; iter = iter->next)
+  for(const GSList *iter = lib->images; iter; iter = g_slist_next(iter))
   {
     entry = (dt_map_image_t *)iter->data;
     OsmGpsMapImage *image = entry->image;
@@ -1618,7 +1618,7 @@ static gboolean _view_map_motion_notify_callback(GtkWidget *widget, GdkEventMoti
       abs(lib->start_drag_y - (int)ceil(e->y_root))) > DT_PIXEL_APPLY_DPI(8))
   {
     const int nb = g_list_length(lib->selected_images);
-    for(GSList *iter = lib->images; iter; iter = iter->next)
+    for(const GSList *iter = lib->images; iter; iter = g_slist_next(iter))
     {
       dt_map_image_t *entry = (dt_map_image_t *)iter->data;
       if(entry->image)
@@ -1638,11 +1638,7 @@ static gboolean _view_map_motion_notify_callback(GtkWidget *widget, GdkEventMoti
       }
     }
 
-    int group_count = 0;
-    for(GList *iter = lib->selected_images; iter != NULL; iter = iter->next)
-    {
-      group_count++;
-    }
+    const int group_count = g_list_length(lib->selected_images);
 
     lib->start_drag = FALSE;
     GtkTargetList *targets = gtk_target_list_new(target_list_all, n_targets_all);
@@ -1738,14 +1734,14 @@ static gboolean _view_map_scroll_event(GtkWidget *w, GdkEventScroll *event, dt_v
   {
     if(dt_map_location_included(lon, lat, &lib->loc.main.data))
     {
-      if(event->state & GDK_SHIFT_MASK)
+      if(dt_modifier_is(event->state, GDK_SHIFT_MASK))
       {
         if(event->direction == GDK_SCROLL_DOWN)
           lib->loc.main.data.delta1 *= 1.1;
         else
           lib->loc.main.data.delta1 /= 1.1;
       }
-      else if(event->state & GDK_CONTROL_MASK)
+      else if(dt_modifier_is(event->state, GDK_CONTROL_MASK))
       {
         if(event->direction == GDK_SCROLL_DOWN)
           lib->loc.main.data.delta2 *= 1.1;
@@ -1795,7 +1791,7 @@ static gboolean _view_map_button_press_callback(GtkWidget *w, GdkEventButton *e,
   if(e->button == 1)
   {
     // check if the click was in a location form - crtl gives priority to images
-    if(lib->loc.main.id > 0 && !(e->state & GDK_CONTROL_MASK))
+    if(lib->loc.main.id > 0 && !dt_modifier_is(e->state, GDK_CONTROL_MASK))
     {
 
       OsmGpsMapPoint *p = osm_gps_map_get_event_location(lib->map, e);
@@ -1803,7 +1799,7 @@ static gboolean _view_map_button_press_callback(GtkWidget *w, GdkEventButton *e,
       osm_gps_map_point_get_degrees(p, &lat, &lon);
       if(dt_map_location_included(lon, lat, &lib->loc.main.data))
       {
-        if(!(e->state & GDK_SHIFT_MASK))
+        if(!dt_modifier_is(e->state, GDK_SHIFT_MASK))
         {
           lib->start_drag_x = ceil(e->x_root);
           lib->start_drag_y = ceil(e->y_root);
@@ -1813,7 +1809,7 @@ static gboolean _view_map_button_press_callback(GtkWidget *w, GdkEventButton *e,
       }
     }
     // check if another location is clicked - ctrl gives priority to images
-    if (!(e->state & GDK_CONTROL_MASK))
+    if (!dt_modifier_is(e->state, GDK_CONTROL_MASK))
     {
       OsmGpsMapPoint *p = osm_gps_map_get_event_location(lib->map, e);
       float lat, lon;
@@ -1834,7 +1830,7 @@ static gboolean _view_map_button_press_callback(GtkWidget *w, GdkEventButton *e,
     }
     // check if the click was on image(s) or just some random position
     lib->selected_images = _view_map_get_imgs_at_pos(self, e->x, e->y,
-                                                     !(e->state & GDK_SHIFT_MASK));
+                                                     !dt_modifier_is(e->state, GDK_SHIFT_MASK));
     if(e->type == GDK_BUTTON_PRESS)
     {
       if(lib->selected_images)
@@ -2102,7 +2098,7 @@ static OsmGpsMapPolygon *_view_map_add_polygon(const dt_view_t *view, GList *poi
   OsmGpsMapPolygon *poly = osm_gps_map_polygon_new();
   OsmGpsMapTrack* track = osm_gps_map_track_new();
 
-  for(GList *iter = g_list_first(points); iter; iter = g_list_next(iter))
+  for(GList *iter = points; iter; iter = g_list_next(iter))
   {
     dt_geo_map_display_point_t *p = (dt_geo_map_display_point_t *)iter->data;
     OsmGpsMapPoint* point = osm_gps_map_point_new_degrees(p->lat, p->lon);
@@ -2131,7 +2127,7 @@ static OsmGpsMapTrack *_view_map_add_track(const dt_view_t *view, GList *points)
 
   OsmGpsMapTrack* track = osm_gps_map_track_new();
 
-  for(GList *iter = g_list_first(points); iter; iter = g_list_next(iter))
+  for(GList *iter = points; iter; iter = g_list_next(iter))
   {
     dt_geo_map_display_point_t *p = (dt_geo_map_display_point_t *)iter->data;
     OsmGpsMapPoint* point = osm_gps_map_point_new_degrees(p->lat, p->lon);

@@ -645,12 +645,10 @@ restart:
 
 static inline void _dt_dev_load_pipeline_defaults(dt_develop_t *dev)
 {
-  GList *modules = g_list_last(dev->iop);
-  while(modules)
+  for(const GList *modules = g_list_last(dev->iop); modules; modules = g_list_previous(modules))
   {
     dt_iop_module_t *module = (dt_iop_module_t *)(modules->data);
     dt_iop_reload_defaults(module);
-    modules = g_list_previous(modules);
   }
 }
 
@@ -799,13 +797,11 @@ int dt_dev_write_history_item(const int imgid, dt_dev_history_item_t *h, int32_t
   sqlite3_finalize(stmt);
 
   // write masks (if any)
-  GList *forms = g_list_first(h->forms);
-  while(forms)
+  for(GList *forms = h->forms; forms; forms = g_list_next(forms))
   {
     dt_masks_form_t *form = (dt_masks_form_t *)forms->data;
     if (form)
       dt_masks_write_masks_history_item(imgid, num, form);
-    forms = g_list_next(forms);
   }
 
   return 0;
@@ -841,16 +837,17 @@ static void _dev_add_history_item_ext(dt_develop_t *dev, dt_iop_module_t *module
 
   history = g_list_nth(dev->history, dev->history_end - 1);
   dt_dev_history_item_t *hist = history ? (dt_dev_history_item_t *)(history->data) : 0;
-  if(!history // if no history yet, push new item for sure.
+  if(!history                                                  // no history yet, push new item
      || new_item                                               // a new item is requested
      || module != hist->module
      || module->instance != hist->module->instance             // add new item for different op
      || module->multi_priority != hist->module->multi_priority // or instance
      || ((dev->focus_hash != hist->focus_hash)                 // or if focused out and in
-         && (// but only add item if there is a difference at all for the same module
-           (module->params_size != hist->module->params_size) ||
-           include_masks ||
-           (module->params_size == hist->module->params_size && memcmp(hist->params, module->params, module->params_size)))))
+         // but only add item if there is a difference at all for the same module
+         && ((module->params_size != hist->module->params_size)
+             || include_masks
+             || (module->params_size == hist->module->params_size
+                 && memcmp(hist->params, module->params, module->params_size)))))
   {
     // new operation, push new item
     // printf("adding new history item %d - %s\n", dev->history_end, module->op);
@@ -961,13 +958,11 @@ void _dev_add_history_item(dt_develop_t *dev, dt_iop_module_t *module, gboolean 
   {
     // debug:
     printf("remaining %d history items:\n", dev->history_end);
-    GList *history = dev->history;
     int i = 0;
-    while(history)
+    for(GList *history = dev->history; history; history = g_list_next(history))
     {
       dt_dev_history_item_t *hist = (dt_dev_history_item_t *)(history->data);
       printf("%d %s\n", i, hist->module->op);
-      history = g_list_next(history);
       i++;
     }
   }
@@ -1016,8 +1011,7 @@ void dt_dev_add_masks_history_item_ext(dt_develop_t *dev, dt_iop_module_t *_modu
   // no module means that is called from the mask manager, so find the iop
   if(module == NULL)
   {
-    GList *modules = g_list_first(dev->iop);
-    while(modules)
+    for(GList *modules = dev->iop; modules; modules = g_list_next(modules))
     {
       dt_iop_module_t *mod = (dt_iop_module_t *)(modules->data);
       if(strcmp(mod->op, "mask_manager") == 0)
@@ -1025,7 +1019,6 @@ void dt_dev_add_masks_history_item_ext(dt_develop_t *dev, dt_iop_module_t *_modu
         module = mod;
         break;
       }
-      modules = g_list_next(modules);
     }
     enable = FALSE;
   }
@@ -1098,8 +1091,7 @@ void dt_dev_reload_history_items(dt_develop_t *dev)
   dt_dev_read_history(dev);
 
   // we have to add new module instances first
-  GList *modules = dev->iop;
-  while(modules)
+  for(GList *modules = dev->iop; modules; modules = g_list_next(modules))
   {
     dt_iop_module_t *module = (dt_iop_module_t *)(modules->data);
     if(module->multi_priority > 0)
@@ -1124,19 +1116,14 @@ void dt_dev_reload_history_items(dt_develop_t *dev)
     else if(!dt_iop_is_hidden(module) && module->expander)
     {
       // we have to ensure that the name of the widget is correct
-      GtkWidget *wlabel;
-      GList *childs = gtk_container_get_children(GTK_CONTAINER(module->expander));
-      GtkWidget *header = gtk_bin_get_child(GTK_BIN(childs->data));
-      g_list_free(childs);
+      GtkWidget *child = dt_gui_container_first_child(GTK_CONTAINER(module->expander));
+      GtkWidget *header = gtk_bin_get_child(GTK_BIN(child));
 
-      childs = gtk_container_get_children(GTK_CONTAINER(header));
-      wlabel = g_list_nth(childs, IOP_MODULE_LABEL)->data;
-      g_list_free(childs);
+      GtkWidget *wlabel = dt_gui_container_nth_child(GTK_CONTAINER(header), IOP_MODULE_LABEL);
       gchar *label = dt_history_item_get_name_html(module);
       gtk_label_set_markup(GTK_LABEL(wlabel), label);
       g_free(label);
     }
-    modules = g_list_next(modules);
   }
 
   dt_dev_pop_history_items(dev, dev->history_end);
@@ -1159,8 +1146,7 @@ void dt_dev_pop_history_items_ext(dt_develop_t *dev, int32_t cnt)
   dev->history_end = cnt;
 
   // reset gui params for all modules
-  GList *modules = dev->iop;
-  while(modules)
+  for(GList *modules = dev->iop; modules; modules = g_list_next(modules))
   {
     dt_iop_module_t *module = (dt_iop_module_t *)(modules->data);
     memcpy(module->params, module->default_params, module->params_size);
@@ -1173,7 +1159,6 @@ void dt_dev_pop_history_items_ext(dt_develop_t *dev, int32_t cnt)
     {
       module->iop_order = INT_MAX;
     }
-    modules = g_list_next(modules);
   }
 
   // go through history and set gui params
@@ -1245,8 +1230,8 @@ void dt_dev_pop_history_items(dt_develop_t *dev, int32_t cnt)
   int dev_iop_changed = (g_list_length(dev_iop) != g_list_length(dev->iop));
   if(!dev_iop_changed)
   {
-    modules = g_list_first(dev->iop);
-    GList *modules_old = g_list_first(dev_iop);
+    modules = dev->iop;
+    GList *modules_old = dev_iop;
     while(modules && modules_old)
     {
       dt_iop_module_t *module = (dt_iop_module_t *)(modules->data);
@@ -1951,7 +1936,6 @@ void dt_dev_read_history_ext(dt_develop_t *dev, const int imgid, gboolean no_ima
         {
           // quick and dirty hack to handle spot removal legacy_params
           memcpy(hist->blend_params, hist->module->blend_params, sizeof(dt_develop_blend_params_t));
-          dt_iop_commit_blend_params(hist->module, hist->module->default_blendop_params);
         }
         legacy_params = TRUE;
       }
@@ -2357,16 +2341,14 @@ dt_iop_module_t *dt_dev_module_duplicate(dt_develop_t *dev, dt_iop_module_t *bas
   module->instance = base->instance;
 
   // we set the multi-instance priority and the iop order
-  GList *modules = g_list_first(base->dev->iop);
   int pmax = 0;
-  while(modules)
+  for(GList *modules = base->dev->iop; modules; modules = g_list_next(modules))
   {
     dt_iop_module_t *mod = (dt_iop_module_t *)modules->data;
     if(mod->instance == base->instance)
     {
       if(pmax < mod->multi_priority) pmax = mod->multi_priority;
     }
-    modules = g_list_next(modules);
   }
   // create a unique multi-priority
   pmax += 1;
@@ -2387,8 +2369,7 @@ dt_iop_module_t *dt_dev_module_duplicate(dt_develop_t *dev, dt_iop_module_t *bas
     snprintf(mname, sizeof(mname), "%d", pname);
     gboolean dup = FALSE;
 
-    modules = g_list_first(base->dev->iop);
-    while(modules)
+    for(GList *modules = base->dev->iop; modules; modules = g_list_next(modules))
     {
       dt_iop_module_t *mod = (dt_iop_module_t *)modules->data;
       if(mod->instance == base->instance)
@@ -2399,7 +2380,6 @@ dt_iop_module_t *dt_dev_module_duplicate(dt_develop_t *dev, dt_iop_module_t *bas
           break;
         }
       }
-      modules = g_list_next(modules);
     }
 
     if(dup)
@@ -2425,14 +2405,13 @@ dt_iop_module_t *dt_dev_module_duplicate(dt_develop_t *dev, dt_iop_module_t *bas
 
 void dt_dev_invalidate_history_module(GList *list, dt_iop_module_t *module)
 {
-  while (list)
+  for(; list; list = g_list_next(list))
   {
     dt_dev_history_item_t *hitem = (dt_dev_history_item_t *)list->data;
     if (hitem->module == module)
     {
       hitem->module = NULL;
     }
-    list = list->next;
   }
 }
 
@@ -2446,7 +2425,7 @@ void dt_dev_module_remove(dt_develop_t *dev, dt_iop_module_t *module)
   {
     dt_dev_undo_start_record(dev);
 
-    GList *elem = g_list_first(dev->history);
+    GList *elem = dev->history;
     while(elem != NULL)
     {
       GList *next = g_list_next(elem);
@@ -2468,8 +2447,7 @@ void dt_dev_module_remove(dt_develop_t *dev, dt_iop_module_t *module)
   dt_pthread_mutex_unlock(&dev->history_mutex);
 
   // and we remove it from the list
-  GList *modules = g_list_first(dev->iop);
-  while(modules)
+  for(GList *modules = dev->iop; modules; modules = g_list_next(modules))
   {
     dt_iop_module_t *mod = (dt_iop_module_t *)modules->data;
     if(mod == module)
@@ -2477,7 +2455,6 @@ void dt_dev_module_remove(dt_develop_t *dev, dt_iop_module_t *module)
       dev->iop = g_list_remove_link(dev->iop, modules);
       break;
     }
-    modules = g_list_next(modules);
   }
 
   if(dev->gui_attached && del)
@@ -2495,14 +2472,11 @@ void _dev_module_update_multishow(dt_develop_t *dev, struct dt_iop_module_t *mod
 {
   // We count the number of other instances
   int nb_instances = 0;
-  GList *modules = g_list_first(dev->iop);
-  while(modules)
+  for(GList *modules = dev->iop; modules; modules = g_list_next(modules))
   {
     dt_iop_module_t *mod = (dt_iop_module_t *)modules->data;
 
     if(mod->instance == module->instance) nb_instances++;
-
-    modules = g_list_next(modules);
   }
 
   dt_iop_module_t *mod_prev = dt_iop_gui_get_previous_visible_module(module);
@@ -2527,8 +2501,7 @@ void dt_dev_modules_update_multishow(dt_develop_t *dev)
 {
   dt_ioppr_check_iop_order(dev, 0, "dt_dev_modules_update_multishow");
 
-  GList *modules = g_list_first(dev->iop);
-  while(modules)
+  for(GList *modules = dev->iop; modules; modules = g_list_next(modules))
   {
     dt_iop_module_t *mod = (dt_iop_module_t *)modules->data;
 
@@ -2538,8 +2511,6 @@ void dt_dev_modules_update_multishow(dt_develop_t *dev)
     {
       _dev_module_update_multishow(dev, mod);
     }
-
-    modules = g_list_next(modules);
   }
 }
 
@@ -2578,8 +2549,8 @@ int dt_dev_distort_backtransform(dt_develop_t *dev, float *points, size_t points
 int dt_dev_distort_transform_locked(dt_develop_t *dev, dt_dev_pixelpipe_t *pipe, const double iop_order,
                                     const int transf_direction, float *points, size_t points_count)
 {
-  GList *modules = g_list_first(pipe->iop);
-  GList *pieces = g_list_first(pipe->nodes);
+  GList *modules = pipe->iop;
+  GList *pieces = pipe->nodes;
   while(modules)
   {
     if(!pieces)
@@ -2663,15 +2634,13 @@ int dt_dev_distort_backtransform_plus(dt_develop_t *dev, dt_dev_pixelpipe_t *pip
 dt_dev_pixelpipe_iop_t *dt_dev_distort_get_iop_pipe(dt_develop_t *dev, struct dt_dev_pixelpipe_t *pipe,
                                                     struct dt_iop_module_t *module)
 {
-  GList *pieces = g_list_last(pipe->nodes);
-  while(pieces)
+  for(const GList *pieces = g_list_last(pipe->nodes); pieces; pieces = g_list_previous(pieces))
   {
     dt_dev_pixelpipe_iop_t *piece = (dt_dev_pixelpipe_iop_t *)(pieces->data);
     if(piece->module == module)
     {
       return piece;
     }
-    pieces = g_list_previous(pieces);
   }
   return NULL;
 }
@@ -2875,8 +2844,7 @@ int dt_dev_sync_pixelpipe_hash_distort(dt_develop_t *dev, struct dt_dev_pixelpip
 void dt_dev_reorder_gui_module_list(dt_develop_t *dev)
 {
   int pos_module = 0;
-  GList *modules = g_list_last(dev->iop);
-  while(modules)
+  for(const GList *modules = g_list_last(dev->iop); modules; modules = g_list_previous(modules))
   {
     dt_iop_module_t *module = (dt_iop_module_t *)(modules->data);
 
@@ -2886,8 +2854,6 @@ void dt_dev_reorder_gui_module_list(dt_develop_t *dev)
       gtk_box_reorder_child(dt_ui_get_container(darktable.gui->ui, DT_UI_CONTAINER_PANEL_RIGHT_CENTER), expander,
                             pos_module++);
     }
-
-    modules = g_list_previous(modules);
   }
 }
 

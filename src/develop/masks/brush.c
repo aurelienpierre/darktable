@@ -1035,7 +1035,7 @@ static int _brush_events_mouse_scrolled(struct dt_iop_module_t *module, float pz
 {
   if(gui->creation)
   {
-    if((state & GDK_SHIFT_MASK) == GDK_SHIFT_MASK)
+    if(dt_modifier_is(state, GDK_SHIFT_MASK))
     {
       const float amount = up ? 0.97f : 1.03f;
       float masks_hardness;
@@ -1095,7 +1095,7 @@ static int _brush_events_mouse_scrolled(struct dt_iop_module_t *module, float pz
       gui->scrollx = pzx;
       gui->scrolly = pzy;
     }
-    if((state & GDK_CONTROL_MASK) == GDK_CONTROL_MASK)
+    if(dt_modifier_is(state, GDK_CONTROL_MASK))
     {
       // we try to change the opacity
       dt_masks_form_change_opacity(form, parentid, up);
@@ -1103,7 +1103,7 @@ static int _brush_events_mouse_scrolled(struct dt_iop_module_t *module, float pz
     else
     {
       // resize don't care where the mouse is inside a shape
-      if((state & GDK_SHIFT_MASK) == GDK_SHIFT_MASK)
+      if(dt_modifier_is(state, GDK_SHIFT_MASK))
       {
         const float amount = up ? 0.97f : 1.03f;
         // do not exceed upper limit of 1.0 and lower limit of 0.004
@@ -1196,8 +1196,7 @@ static int _brush_events_button_pressed(struct dt_iop_module_t *module, float pz
   const float masks_density = 1.0f;
 
   if(gui->creation && which == 1
-     && (((state & (GDK_CONTROL_MASK | GDK_SHIFT_MASK)) == (GDK_CONTROL_MASK | GDK_SHIFT_MASK))
-         || ((state & GDK_SHIFT_MASK) == GDK_SHIFT_MASK)))
+     && (dt_modifier_is(state, GDK_CONTROL_MASK | GDK_SHIFT_MASK) || dt_modifier_is(state, GDK_SHIFT_MASK)))
   {
     // set some absolute or relative position for the source of the clone mask
     if(form->type & DT_MASKS_CLONE) dt_masks_set_source_pos_initial_state(gui, state, pzx, pzy);
@@ -1273,7 +1272,7 @@ static int _brush_events_button_pressed(struct dt_iop_module_t *module, float pz
     else if(gui->point_selected >= 0)
     {
       // if ctrl is pressed, we change the type of point
-      if(gui->point_edited == gui->point_selected && ((state & GDK_CONTROL_MASK) == GDK_CONTROL_MASK))
+      if(gui->point_edited == gui->point_selected && dt_modifier_is(state, GDK_CONTROL_MASK))
       {
         dt_masks_point_brush_t *point
             = (dt_masks_point_brush_t *)g_list_nth_data(form->points, gui->point_edited);
@@ -1324,7 +1323,7 @@ static int _brush_events_button_pressed(struct dt_iop_module_t *module, float pz
     {
       const guint nb = g_list_length(form->points);
       gui->point_edited = -1;
-      if((state & GDK_CONTROL_MASK) == GDK_CONTROL_MASK)
+      if(dt_modifier_is(state, GDK_CONTROL_MASK))
       {
         // we add a new point to the brush
         dt_masks_point_brush_t *bzpt = (dt_masks_point_brush_t *)(malloc(sizeof(dt_masks_point_brush_t)));
@@ -1404,8 +1403,7 @@ static int _brush_events_button_pressed(struct dt_iop_module_t *module, float pz
       {
         const int emode = gui->edit_mode;
         dt_masks_clear_form_gui(darktable.develop);
-        GList *forms = g_list_first(darktable.develop->form_visible->points);
-        while(forms)
+        for(GList *forms = darktable.develop->form_visible->points; forms; forms = g_list_next(forms))
         {
           dt_masks_point_group_t *guipt = (dt_masks_point_group_t *)forms->data;
           if(guipt->formid == form->formid)
@@ -1415,7 +1413,6 @@ static int _brush_events_button_pressed(struct dt_iop_module_t *module, float pz
             free(guipt);
             break;
           }
-          forms = g_list_next(forms);
         }
         gui->edit_mode = emode;
       }
@@ -1472,8 +1469,7 @@ static int _brush_events_button_pressed(struct dt_iop_module_t *module, float pz
     else
     {
       dt_masks_clear_form_gui(darktable.develop);
-      GList *forms = g_list_first(darktable.develop->form_visible->points);
-      while(forms)
+      for(GList *forms = darktable.develop->form_visible->points; forms; forms = g_list_next(forms))
       {
         dt_masks_point_group_t *guipt = (dt_masks_point_group_t *)forms->data;
         if(guipt->formid == form->formid)
@@ -1483,7 +1479,6 @@ static int _brush_events_button_pressed(struct dt_iop_module_t *module, float pz
           free(guipt);
           break;
         }
-        forms = g_list_next(forms);
       }
       gui->edit_mode = DT_MASKS_EDIT_FULL;
     }
@@ -1511,7 +1506,8 @@ static int _brush_events_button_released(struct dt_iop_module_t *module, float p
   else
     masks_border = MIN(dt_conf_get_float("plugins/darkroom/masks/brush/border"), BORDER_MAX);
 
-  if(gui->creation && which == 1 && (state & (GDK_CONTROL_MASK | GDK_SHIFT_MASK)))
+  if(gui->creation && which == 1 &&
+     (dt_modifier_is(state, GDK_SHIFT_MASK) || dt_modifier_is(state, GDK_CONTROL_MASK | GDK_SHIFT_MASK)))
   {
     // user just set the source position, so just return
     return 1;
@@ -1660,8 +1656,7 @@ static int _brush_events_button_released(struct dt_iop_module_t *module, float p
         dt_masks_form_t *grp = darktable.develop->form_visible;
         if(!grp || !(grp->type & DT_MASKS_GROUP)) return 1;
         int pos3 = 0, pos2 = -1;
-        GList *fs = g_list_first(grp->points);
-        while(fs)
+        for(GList *fs = grp->points; fs; fs = g_list_next(fs))
         {
           dt_masks_point_group_t *pt = (dt_masks_point_group_t *)fs->data;
           if(pt->formid == form->formid)
@@ -1670,7 +1665,6 @@ static int _brush_events_button_released(struct dt_iop_module_t *module, float p
             break;
           }
           pos3++;
-          fs = g_list_next(fs);
         }
         if(pos2 < 0) return 1;
         dt_masks_form_gui_t *gui2 = darktable.develop->form_gui;
@@ -1707,7 +1701,7 @@ static int _brush_events_button_released(struct dt_iop_module_t *module, float p
     gui->form_dragging = FALSE;
 
     // we get point0 new values
-    dt_masks_point_brush_t *point = (dt_masks_point_brush_t *)g_list_first(form->points)->data;
+    dt_masks_point_brush_t *point = (dt_masks_point_brush_t *)(form->points)->data;
     float wd = darktable.develop->preview_pipe->backbuf_width;
     float ht = darktable.develop->preview_pipe->backbuf_height;
     float pts[2] = { pzx * wd + gui->dx, pzy * ht + gui->dy };
@@ -1716,8 +1710,7 @@ static int _brush_events_button_released(struct dt_iop_module_t *module, float p
     float dy = pts[1] / darktable.develop->preview_pipe->iheight - point->corner[1];
 
     // we move all points
-    GList *points = g_list_first(form->points);
-    while(points)
+    for(GList *points = form->points; points; points = g_list_next(points))
     {
       point = (dt_masks_point_brush_t *)points->data;
       point->corner[0] += dx;
@@ -1726,7 +1719,6 @@ static int _brush_events_button_released(struct dt_iop_module_t *module, float p
       point->ctrl1[1] += dy;
       point->ctrl2[0] += dx;
       point->ctrl2[1] += dy;
-      points = g_list_next(points);
     }
 
     dt_dev_add_masks_history_item(darktable.develop, module, TRUE);
@@ -2852,7 +2844,7 @@ static void _brush_set_form_name(struct dt_masks_form_t *const form, const size_
 static void _brush_set_hint_message(const dt_masks_form_gui_t *const gui, const dt_masks_form_t *const form,
                                      const int opacity, char *const restrict msgbuf, const size_t msgbuf_len)
 {
-  // TODO: check if it would be good idea to have same controlls on creation and for selected brush
+  // TODO: check if it would be good idea to have same controls on creation and for selected brush
   if(gui->creation)
     g_snprintf(msgbuf, msgbuf_len,
                _("<b>size</b>: scroll, <b>hardness</b>: shift+scroll\n"
@@ -2868,7 +2860,7 @@ static void _brush_set_hint_message(const dt_masks_form_gui_t *const gui, const 
 static void _brush_duplicate_points(dt_develop_t *const dev, dt_masks_form_t *const base, dt_masks_form_t *const dest)
 {
   (void)dev; // unused arg, keep compiler from complaining
-  for(GList *pts = g_list_first(base->points); pts; pts = g_list_next(pts))
+  for(GList *pts = base->points; pts; pts = g_list_next(pts))
   {
     dt_masks_point_brush_t *pt = (dt_masks_point_brush_t *)pts->data;
     dt_masks_point_brush_t *npt = (dt_masks_point_brush_t *)malloc(sizeof(dt_masks_point_brush_t));

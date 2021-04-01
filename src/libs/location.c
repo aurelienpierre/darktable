@@ -284,7 +284,7 @@ static void clear_search(dt_lib_location_t *lib)
   g_list_free_full(lib->places, (GDestroyNotify)free_location);
   lib->places = NULL;
 
-  gtk_container_foreach(GTK_CONTAINER(lib->result), (GtkCallback)gtk_widget_destroy, NULL);
+  dt_gui_container_destroy_children(GTK_CONTAINER(lib->result));
   g_list_free_full(lib->callback_params, free);
   lib->callback_params = NULL;
 
@@ -321,13 +321,12 @@ static void _lib_location_search_finish(gpointer user_data)
   if(!lib->places) return;
 
   /* for each location found populate the result list */
-  GList *item = lib->places;
-  do
+  for(const GList *item = lib->places; item; item = g_list_next(item))
   {
     _lib_location_result_t *place = (_lib_location_result_t *)item->data;
     gtk_box_pack_start(GTK_BOX(lib->result), _lib_location_place_widget_new(lib, place), TRUE, TRUE, 0);
     gtk_widget_show(lib->result);
-  } while((item = g_list_next(item)) != NULL);
+  }
 
   /* if we only got one search result back lets
      set center location and zoom based on place type  */

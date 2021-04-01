@@ -1019,7 +1019,7 @@ static void apply_global_distortion_map(struct dt_iop_module_t *module,
   const int ch = piece->colors;
   const int ch_width = ch * roi_in->width;
   const struct dt_interpolation * const interpolation =
-    dt_interpolation_new(DT_INTERPOLATION_USERPREF);
+    dt_interpolation_new(DT_INTERPOLATION_USERPREF_WARP);
 
   #ifdef _OPENMP
   #pragma omp parallel for schedule (static) default (shared)
@@ -1071,15 +1071,16 @@ static void apply_global_distortion_map(struct dt_iop_module_t *module,
 
 // calculate the map extent.
 
-static void _get_map_extent(const dt_iop_roi_t *roi_out,
-                             GList *interpolated,
-                             cairo_rectangle_int_t *map_extent)
+static GSList *_get_map_extent(const dt_iop_roi_t *roi_out,
+                               const GList *interpolated,
+                               cairo_rectangle_int_t *map_extent)
 {
   const cairo_rectangle_int_t roi_out_rect = { roi_out->x, roi_out->y, roi_out->width, roi_out->height };
   cairo_region_t *roi_out_region = cairo_region_create_rectangle(&roi_out_rect);
   cairo_region_t *map_region = cairo_region_create();
+  GSList *in_roi = NULL;
 
-  for(GList *i = interpolated; i != NULL; i = i->next)
+  for(const GList *i = interpolated; i; i = g_list_next(i))
   {
     const dt_liquify_warp_t *warp = ((dt_liquify_warp_t *) i->data);
     cairo_rectangle_int_t r;
@@ -1088,6 +1089,7 @@ static void _get_map_extent(const dt_iop_roi_t *roi_out,
     if(cairo_region_contains_rectangle(roi_out_region, &r) != CAIRO_REGION_OVERLAP_OUT)
     {
       cairo_region_union_rectangle(map_region, &r);
+      in_roi = g_slist_prepend(in_roi, i->data);
     }
   }
 
@@ -1095,19 +1097,28 @@ static void _get_map_extent(const dt_iop_roi_t *roi_out,
   cairo_region_get_extents(map_region, map_extent);
   cairo_region_destroy(map_region);
   cairo_region_destroy(roi_out_region);
+
+  return g_slist_reverse(in_roi);
 }
 
 static float complex *create_global_distortion_map(const cairo_rectangle_int_t *map_extent,
-                                                    GList *interpolated,
-                                                    gboolean inverted)
+                                                   const GSList *interpolated,
+                                                   gboolean inverted)
 {
-  // allocate distortion map big enough to contain all paths
   const int mapsize = map_extent->width * map_extent->height;
+  if (mapsize == 0)
+  {
+    // there are no pixels for which we need distortion info, so return right away
+    // caller will see the NULL and bypass any further processing of the points it wants to distort
+    return NULL;
+  }
+
+  // allocate distortion map big enough to contain all paths
   float complex *map = dt_alloc_align(64, sizeof(float complex) * mapsize);
   memset(map, 0, sizeof(float complex) * mapsize);
 
   // build map
-  for(GList *i = interpolated; i != NULL; i = i->next)
+  for(const GSList *i = interpolated; i; i = g_slist_next(i))
   {
     const dt_liquify_warp_t *warp = ((dt_liquify_warp_t *) i->data);
     float complex *stamp = NULL;
@@ -1174,7 +1185,6 @@ static float complex *create_global_distortion_map(const cairo_rectangle_int_t *
 
     map = imap;
   }
-
   return map;
 }
 
@@ -1191,11 +1201,11 @@ static float complex *build_global_distortion_map(struct dt_iop_module_t *module
   distort_paths_raw_to_piece(module, piece->pipe, roi_in->scale, &copy_params, FALSE);
 
   GList *interpolated = interpolate_paths(&copy_params);
+  GSList *interpolated_in_roi = _get_map_extent(roi_out, interpolated, map_extent);
 
-  _get_map_extent(roi_out, interpolated, map_extent);
+  float complex *map = create_global_distortion_map(map_extent, interpolated_in_roi, FALSE);
 
-  float complex *map = create_global_distortion_map(map_extent, interpolated, FALSE);
-
+  g_slist_free(interpolated_in_roi);
   g_list_free_full(interpolated, free);
   return map;
 }
@@ -1249,7 +1259,9 @@ void modify_roi_in(struct dt_iop_module_t *module,
   // get extent of all paths
   GList *interpolated = interpolate_paths(&copy_params);
   cairo_rectangle_int_t extent;
-  _get_map_extent(roi_out, interpolated, &extent);
+  GSList *interpolated_in_roi = _get_map_extent(roi_out, interpolated, &extent);
+  g_slist_free(interpolated_in_roi);
+  g_list_free_full(interpolated, free);
 
   // (eventually) extend roi_in
   cairo_region_union_rectangle(roi_in_region, &extent);
@@ -1265,7 +1277,6 @@ void modify_roi_in(struct dt_iop_module_t *module,
 
   // cleanup
   cairo_region_destroy(roi_in_region);
-  g_list_free_full(interpolated, free);
 }
 
 static int _distort_xtransform(dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, float *points, size_t points_count, gboolean inverted)
@@ -1304,9 +1315,10 @@ static int _distort_xtransform(dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *pi
     // the warps that are in (possibly partly) in this same region.
 
     dt_iop_roi_t roi_in = { .x = extent.x, .y = extent.y, .width = extent.width, .height = extent.height };
-    _get_map_extent(&roi_in, interpolated, &extent);
+    GSList *interpolated_in_roi = _get_map_extent(&roi_in, interpolated, &extent);
 
-    float complex *map = create_global_distortion_map(&extent, interpolated, inverted);
+    float complex *map = create_global_distortion_map(&extent, interpolated_in_roi, inverted);
+    g_slist_free(interpolated_in_roi);
     g_list_free_full(interpolated, free);
 
     if(map == NULL) return 0;
@@ -1488,7 +1500,7 @@ static cl_int_t apply_global_distortion_map_cl(struct dt_iop_module_t *module,
   dt_iop_liquify_global_data_t *gd = (dt_iop_liquify_global_data_t *) module->global_data;
   const int devid = piece->pipe->devid;
 
-  const struct dt_interpolation* interpolation = dt_interpolation_new(DT_INTERPOLATION_USERPREF);
+  const struct dt_interpolation* interpolation = dt_interpolation_new(DT_INTERPOLATION_USERPREF_WARP);
   dt_liquify_kernel_descriptor_t kdesc = { .size = 0, .resolution = 100 };
   float *k = NULL;
 
@@ -1850,7 +1862,7 @@ static void _draw_paths(dt_iop_module_t *module,
     ? NULL
     : interpolate_paths(p);
 
-  for(GList *l = layers; l != NULL; l = l->next)
+  for(const GList *l = layers; l; l = g_list_next(l))
   {
     const dt_liquify_layer_enum_t layer = (dt_liquify_layer_enum_t) GPOINTER_TO_INT(l->data);
     dt_liquify_rgba_t fg_color = dt_liquify_layers[layer].fg;
@@ -1894,7 +1906,7 @@ static void _draw_paths(dt_iop_module_t *module,
 
       if(layer == DT_LIQUIFY_LAYER_RADIUS)
       {
-        for(GList *i = interpolated; i != NULL; i = i->next)
+        for(const GList *i = interpolated; i; i = g_list_next(i))
         {
           const dt_liquify_warp_t *pwarp = ((dt_liquify_warp_t *) i->data);
           draw_circle(cr, pwarp->point, 2.0f * cabsf(pwarp->radius - pwarp->point));
@@ -1905,7 +1917,7 @@ static void _draw_paths(dt_iop_module_t *module,
       }
       else if(layer == DT_LIQUIFY_LAYER_HARDNESS1)
       {
-        for(GList *i = interpolated; i != NULL; i = i->next)
+        for(const GList *i = interpolated; i; i = g_list_next(i))
         {
           const dt_liquify_warp_t *pwarp = ((dt_liquify_warp_t *) i->data);
           draw_circle(cr, pwarp->point, 2.0f * cabsf(pwarp->radius - pwarp->point) * pwarp->control1);
@@ -1915,7 +1927,7 @@ static void _draw_paths(dt_iop_module_t *module,
       }
       else if(layer == DT_LIQUIFY_LAYER_HARDNESS2)
       {
-        for(GList *i = interpolated; i != NULL; i = i->next)
+        for(const GList *i = interpolated; i; i = g_list_next(i))
         {
           const dt_liquify_warp_t *pwarp = ((dt_liquify_warp_t *) i->data);
           draw_circle(cr, pwarp->point, 2.0f * cabsf(pwarp->radius - pwarp->point) * pwarp->control2);
@@ -1926,7 +1938,7 @@ static void _draw_paths(dt_iop_module_t *module,
       else if(layer == DT_LIQUIFY_LAYER_WARPS)
       {
         VERYTHINLINE; FG_COLOR;
-        for(GList *i = interpolated; i != NULL; i = i->next)
+        for(const GList *i = interpolated; i; i = g_list_next(i))
         {
           const dt_liquify_warp_t *pwarp = ((dt_liquify_warp_t *) i->data);
           cairo_move_to(cr, crealf(pwarp->point), cimagf(pwarp->point));
@@ -1934,7 +1946,7 @@ static void _draw_paths(dt_iop_module_t *module,
         }
         cairo_stroke(cr);
 
-        for(GList *i = interpolated; i != NULL; i = i->next)
+        for(const GList *i = interpolated; i; i = g_list_next(i))
         {
           const dt_liquify_warp_t *pwarp = ((dt_liquify_warp_t *) i->data);
           const float rot = get_rot(pwarp->type);
@@ -2231,7 +2243,7 @@ static dt_liquify_hit_t _hit_paths(dt_iop_module_t *module,
 
   float distance = FLT_MAX;
 
-  for(GList *l = layers; l != NULL; l = l->next)
+  for(const GList *l = layers; l; l = g_list_next(l))
   {
     const dt_liquify_layer_enum_t layer = (dt_liquify_layer_enum_t) GPOINTER_TO_INT(l->data);
 
@@ -3068,7 +3080,7 @@ int scrolled(struct dt_iop_module_t *module, double x, double y, int up, uint32_
       dt_conf_set_float(CONF_STRENGTH, r);
       return 1;
     }
-    else if(state & GDK_CONTROL_MASK)
+    else if(dt_modifier_is(state, GDK_CONTROL_MASK))
     {
       //  change the strength direction
       float phi = cargf(strength_v);
@@ -3084,7 +3096,7 @@ int scrolled(struct dt_iop_module_t *module, double x, double y, int up, uint32_
       dt_conf_set_float(CONF_ANGLE, phi);
       return 1;
     }
-    else if(state & GDK_SHIFT_MASK)
+    else if(dt_modifier_is(state, GDK_SHIFT_MASK))
     {
       //  change the strength
       const float phi = cargf(strength_v);
@@ -3123,7 +3135,7 @@ int button_pressed(struct dt_iop_module_t *module,
   dt_iop_gui_enter_critical_section(module);
 
   g->last_mouse_pos = pt;
-  g->last_mouse_mods = state & gtk_accelerator_get_default_mod_mask();
+  g->last_mouse_mods = state;
   if(which == 1)
     g->last_button1_pressed_pos = pt;
 
@@ -3186,7 +3198,7 @@ int button_pressed(struct dt_iop_module_t *module,
 
   if(gtk_toggle_button_get_active(g->btn_node_tool))
   {
-    if(which == 1 && (g->last_mouse_mods == GDK_CONTROL_MASK) &&
+    if(which == 1 && dt_modifier_is(g->last_mouse_mods, GDK_CONTROL_MASK) &&
         (g->last_hit.layer == DT_LIQUIFY_LAYER_CENTERPOINT))
     {
       // cycle node type: smooth -> cusp etc.
@@ -3195,7 +3207,7 @@ int button_pressed(struct dt_iop_module_t *module,
       handled = 1;
       goto done;
     }
-    if(which == 1 && (g->last_mouse_mods == GDK_CONTROL_MASK) &&
+    if(which == 1 && dt_modifier_is(g->last_mouse_mods, GDK_CONTROL_MASK) &&
         (g->last_hit.layer == DT_LIQUIFY_LAYER_STRENGTHPOINT))
     {
       // cycle warp type: linear -> radial etc.
@@ -3368,7 +3380,7 @@ int button_released(struct dt_iop_module_t *module,
 
   if(gtk_toggle_button_get_active(g->btn_node_tool))
   {
-    if(which == 1 && g->last_mouse_mods == 0 && !dragged)
+    if(which == 1 && dt_modifier_is(g->last_mouse_mods, 0) && !dragged)
     {
       // select/unselect start/endpoint and clear previous selections
       if(g->last_hit.layer == DT_LIQUIFY_LAYER_CENTERPOINT)
@@ -3387,7 +3399,7 @@ int button_released(struct dt_iop_module_t *module,
         goto done;
       }
     }
-    if(which == 1 && g->last_mouse_mods == GDK_SHIFT_MASK && !dragged)
+    if(which == 1 && dt_modifier_is(g->last_mouse_mods, GDK_SHIFT_MASK) && !dragged)
     {
       // select/unselect start/endpoint and keep previous selections
       if(g->last_hit.layer == DT_LIQUIFY_LAYER_CENTERPOINT)
@@ -3398,7 +3410,7 @@ int button_released(struct dt_iop_module_t *module,
         goto done;
       }
     }
-    if(which == 1 && (g->last_mouse_mods == GDK_CONTROL_MASK) && !dragged)
+    if(which == 1 && dt_modifier_is(g->last_mouse_mods, GDK_CONTROL_MASK) && !dragged)
     {
       // add node
       if(g->last_hit.layer == DT_LIQUIFY_LAYER_PATH)
@@ -3457,7 +3469,7 @@ int button_released(struct dt_iop_module_t *module,
       }
     }
     if(which == 1
-        && (g->last_mouse_mods == (GDK_MOD1_MASK | GDK_CONTROL_MASK))
+        && dt_modifier_is(g->last_mouse_mods, GDK_MOD1_MASK | GDK_CONTROL_MASK)
         && !dragged)
     {
       if(g->last_hit.layer == DT_LIQUIFY_LAYER_PATH)
@@ -3529,8 +3541,7 @@ static gboolean btn_make_radio_callback(GtkToggleButton *btn, GdkEventButton *ev
     return TRUE;
   }
 
-  GdkModifierType modifiers = gtk_accelerator_get_default_mod_mask();
-  g->creation_continuous = event != NULL && (event->state & modifiers) == GDK_CONTROL_MASK;
+  g->creation_continuous = event != NULL && dt_modifier_is(event->state, GDK_CONTROL_MASK);
 
   dt_control_hinter_message(darktable.control, "");
 

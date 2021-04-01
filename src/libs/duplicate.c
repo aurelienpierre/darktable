@@ -117,8 +117,7 @@ static void _lib_duplicate_delete(GtkButton *button, dt_lib_module_t *self)
   if(imgid == darktable.develop->image_storage.id)
   {
     // we find the duplicate image to show now
-    GList *l = d->thumbs;
-    while(l)
+    for(GList *l = d->thumbs; l; l = g_list_next(l))
     {
       dt_thumbnail_t *thumb = (dt_thumbnail_t *)l->data;
       if(thumb->imgid == imgid)
@@ -132,7 +131,6 @@ static void _lib_duplicate_delete(GtkButton *button, dt_lib_module_t *self)
           break;
         }
       }
-      l = g_list_next(l);
     }
   }
 
@@ -394,7 +392,7 @@ static void _lib_duplicate_init_callback(gpointer instance, dt_lib_module_t *sel
   g_list_free_full(d->thumbs, _thumb_remove);
   d->thumbs = NULL;
   // and the other widgets too
-  gtk_container_foreach(GTK_CONTAINER(d->duplicate_box), (GtkCallback)gtk_widget_destroy, 0);
+  dt_gui_container_destroy_children(GTK_CONTAINER(d->duplicate_box));
   // retrieve all the versions of the image
   sqlite3_stmt *stmt;
   dt_develop_t *dev = darktable.develop;

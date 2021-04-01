@@ -349,8 +349,8 @@ void dt_ellipsize_combo(GtkComboBox *cbox);
 static inline void dt_ui_section_label_set(GtkWidget *label)
 {
   gtk_widget_set_halign(label, GTK_ALIGN_FILL); // make it span the whole available width
+  gtk_label_set_xalign (GTK_LABEL(label), 0.0f);
   gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END); // ellipsize labels
-  g_object_set(G_OBJECT(label), "xalign", 0.0, (gchar *)0);    // make the text left aligned
   gtk_widget_set_name(label, "section_label"); // make sure that we can style these easily
 }
 
@@ -413,6 +413,24 @@ static inline GtkWidget *dt_ui_button_new(const gchar *label, const gchar *toolt
 };
 
 GtkWidget *dt_ui_scroll_wrap(GtkWidget *w, gint min_size, char *config_str);
+
+// check whether the given container has any user-added children
+gboolean dt_gui_container_has_children(GtkContainer *container);
+// return a count of the user-added children in the given container
+int dt_gui_container_num_children(GtkContainer *container);
+// return the first child of the given container
+GtkWidget *dt_gui_container_first_child(GtkContainer *container);
+// return the requested child of the given container, or NULL if it has fewer children
+GtkWidget *dt_gui_container_nth_child(GtkContainer *container, int which);
+
+// remove all of the children we've added to the container.  Any which no longer have any references will
+// be destroyed.
+void dt_gui_container_remove_children(GtkContainer *container);
+
+// delete all of the children we've added to the container.  Use this function only if you are SURE
+// there are no other references to any of the children (if in doubt, use dt_gui_container_remove_children
+// instead; it's a bit slower but safer).
+void dt_gui_container_destroy_children(GtkContainer *container);
 
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
 // vim: shiftwidth=2 expandtab tabstop=2 cindent

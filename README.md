@@ -7,30 +7,38 @@ darktable is an open source photography workflow application and non-destructive
 
 ## Table of Contents
 
-1. [Requirements](#requirements)
+1. [Documentation](#documentation)
+2. [Requirements](#requirements)
    - [Supported platforms](#supported-platforms)
    - [Hardware](#hardware)
-2. [Installing](#installing)
+3. [Installing](#installing)
    - [Latest release](#latest-release)
    - [Development snapshot](#development-snapshot)
-2. [Updating from older versions](#updating-from-older-versions)
-3. [Getting extensions](#getting-extensions)
-4. [Building](#building)
+4. [Updating from older versions](#updating-from-older-versions)
+5. [Getting extensions](#getting-extensions)
+6. [Building](#building)
    - [Dependencies](#dependencies)
    - [Get the source](#get-the-source)
    - [Get submodules](#get-submodules)
    - [Compile](#compile)
    - [Further reading](#further-reading)
-5. [Using](#using)
+7. [Using](#using)
    - [Test/unstable version](#testunstable-version)
    - [Regular/stable version](#regularstable-version)
-6. [Contributing](#contributing)
-7. [FAQ](#faq)
+8. [Contributing](#contributing)
+9. [FAQ](#faq)
    - [Why is my camera not detected when plugged-in ?](#why-is-my-camera-not-detected-when-plugged-in-)
    - [Why is my lens not detected/corrected in darkroom ?](#why-is-my-lens-not-detectedcorrected-in-darkroom-)
    - [Why are the thumbnails in lighttable looking different than the preview in darkroom ?](#why-are-the-thumbnails-in-lighttable-looking-different-than-the-preview-in-darkroom-)
-8. [Wiki](#wiki)
-9. [Mailing lists](#mailing-lists)
+10. [Wiki](#wiki)
+11. [Mailing lists](#mailing-lists)
+
+Documentation
+-------------
+
+The darktable user manual is maintained in the [dtdocs](https://github.com/darktable-org/dtdocs) repository. 
+
+Lua API documentation is maintained in the [luadocs](https://github.com/darktable-org/luadocs) repository.
 
 Requirements
 ------------
@@ -251,7 +259,9 @@ git submodule update --init
 #### Easy way
 
 WARNING: in case you have already built darktable in the past, don't forget to remove entirely (`rm -R`) the `build` 
-and `/opt/darktable` directories to avoid conflicting files from different versions.
+and `/opt/darktable` directories to avoid conflicting files from different versions. Many weird behaviours and transient 
+bugs have been reported that can be tracked down to the building cache not properly invalidating the changed dependencies, so 
+the safest way is to completely remove previously built binaries and restart from scratch. 
 
 darktable provides a shell script that automatically takes care of the building on Linux and MacOS for classic cases in a single command. 
 
@@ -289,7 +299,7 @@ sudo make install
 
 ##### Windows
 
-See https://github.com/darktable-org/darktable/blob/master/packaging/windows/BUILD.txt
+See https://github.com/darktable-org/darktable/blob/master/packaging/windows/BUILD.md
 
 ### Using
 
@@ -307,14 +317,14 @@ the test/unstable one in `~/.config/darktable-test`, so they will not produce da
 
 #### Regular/stable version
 
-Simply lauch it from your desktop application menu, or in terminal, run `darktable` or `/opt/darktable/bin/darktable`. If the installation did not create a launcher in your applications menu, run:
+Simply launch it from your desktop application menu, or in terminal, run `darktable` or `/opt/darktable/bin/darktable`. If the installation did not create a launcher in your applications menu, run:
 
 ```
 sudo ln -s /opt/darktable/share/applications/darktable.desktop /usr/share/applications/darktable.desktop
 ```
 
 You may find darktable configuration files in `~/.config/darktable`.
-In case you are having crashes at startup, try lauching darktable without OpenCL with `darktable --conf opencl=FALSE`.
+In case you are having crashes at startup, try launching darktable without OpenCL with `darktable --conf opencl=FALSE`.
 
 ### Further reading
 

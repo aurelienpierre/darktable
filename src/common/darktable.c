@@ -1003,6 +1003,13 @@ int dt_init(int argc, char *argv[], const gboolean init_gui, const gboolean load
     dt_pthread_mutex_init(&darktable.control->run_mutex, NULL);
   }
 
+  // we initialize grouping early because it's needed for collection init
+  if(init_gui)
+  {
+    darktable.gui = (dt_gui_gtk_t *)calloc(1, sizeof(dt_gui_gtk_t));
+    darktable.gui->grouping = dt_conf_get_bool("ui_last/grouping");
+  }
+
   // initialize collection query
   darktable.collection = dt_collection_new(NULL);
 
@@ -1054,7 +1061,6 @@ int dt_init(int argc, char *argv[], const gboolean init_gui, const gboolean load
 
   if(init_gui)
   {
-    darktable.gui = (dt_gui_gtk_t *)calloc(1, sizeof(dt_gui_gtk_t));
     if(dt_gui_gtk_init(darktable.gui))
     {
       fprintf(stderr, "ERROR: can't init gui, aborting.\n");
@@ -1651,15 +1657,12 @@ void dt_configure_performance()
 
 int dt_capabilities_check(char *capability)
 {
-  GList *capabilities = darktable.capabilities;
-
-  while(capabilities)
+  for(GList *capabilities = darktable.capabilities; capabilities; capabilities = g_list_next(capabilities))
   {
     if(!strcmp(capabilities->data, capability))
     {
       return TRUE;
     }
-    capabilities = g_list_next(capabilities);
   }
   return FALSE;
 }
