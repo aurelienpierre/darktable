@@ -556,13 +556,12 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
       float opacity = opacities[g->mask_type];
       const float opacity_comp = 1.0f - opacity;
 
-      for_four_channels(c) pix_out[c] = opacity_comp * color + opacity * fmaxf(pix_out[c], 0.f);
+      for(size_t c = 0; c < 4; ++c) pix_out[c] = opacity_comp * color + opacity * fmaxf(pix_out[c], 0.f);
       pix_out[3] = 1.f;
     }
     else
     {
-      for_four_channels(c) pix_out[c] = fmaxf(pix_out[c], 0.f);
-      pix_out[3] = pix_in[3]; // copy alpha
+      for(size_t c = 0; c < 4; ++c) pix_out[c] = fmaxf(pix_out[c], 0.f);
     }
   }
 }
@@ -902,7 +901,8 @@ static gboolean dt_iop_tonecurve_draw(GtkWidget *widget, cairo_t *crf, gpointer 
   gtk_render_background(context, cr, 0, 0, allocation.width, allocation.height);
 
   // draw x gradient as axis legend
-  cairo_pattern_t *grad = cairo_pattern_create_linear(margin_left, 0.0, graph_width, 0.0);
+  cairo_pattern_t *grad;
+  grad = cairo_pattern_create_linear(margin_left, 0.0, graph_width, 0.0);
   dt_cairo_perceptual_gradient(grad, 1.0);
   cairo_set_line_width(cr, 0.0);
   cairo_rectangle(cr, margin_left, graph_height + 2 * inset, graph_width, line_height);
@@ -940,8 +940,8 @@ static gboolean dt_iop_tonecurve_draw(GtkWidget *widget, cairo_t *crf, gpointer 
         else color = 150;
       }
 
-      for_four_channels(c) data[k + c] = color * alpha;
-      data[k + 3] = alpha * 255;
+      for(size_t c = 0; c < 4; ++c) data[k + c] = color * alpha;
+      data[k+3] = alpha * 255;
     }
 
   cairo_set_source_surface(cr, surface, 0, margin_top);
@@ -1331,7 +1331,6 @@ void gui_init(dt_iop_module_t *self)
                                    CPF_STYLE_FLAT | CPF_DO_NOT_USE_BORDER, NULL);
   dt_bauhaus_widget_set_quad_toggle(g->grey_fulcrum, TRUE);
   g_signal_connect(G_OBJECT(g->grey_fulcrum), "quad-pressed", G_CALLBACK(mask_callback), self);
-  gtk_box_pack_start(GTK_BOX(self->widget), g->grey_fulcrum, FALSE, FALSE, 0);
 
   g->highlights_weight = dt_bauhaus_slider_from_params(self, "highlights_weight");
   dt_bauhaus_slider_set_step(g->highlights_weight, 0.1);

@@ -98,7 +98,7 @@ typedef struct dt_lib_import_t
   GtkButton *import_camera;
   GtkButton *tethered_shoot;
 
-  GtkWidget *ignore_jpegs, *ignore_exif, *rating, *apply_metadata;
+  GtkWidget *ignore_exif, *rating, *apply_metadata;
   dt_import_metadata_t metadata;
   GtkBox *devices;
   GtkBox *locked_devices;
@@ -708,9 +708,7 @@ static gboolean _update_files_list(gpointer user_data)
 
 static void _ignore_jpegs_toggled(GtkWidget *widget, dt_lib_module_t* self)
 {
-  dt_lib_import_t *d = (dt_lib_import_t *)self->data;
   _update_files_list(self);
-  dt_gui_preferences_bool_update(d->ignore_jpegs);
 }
 
 static void _recursive_toggled(GtkWidget *widget, dt_lib_module_t* self)
@@ -1165,7 +1163,6 @@ void gui_init(dt_lib_module_t *self)
   GtkGrid *grid = GTK_GRID(gtk_grid_new());
   gtk_grid_set_column_spacing(grid, DT_PIXEL_APPLY_DPI(5));
   guint line = 0;
-  d->ignore_jpegs = dt_gui_preferences_bool(grid, "ui_last/import_ignore_jpegs", 0, line++, FALSE);
   d->ignore_exif = dt_gui_preferences_bool(grid, "ui_last/ignore_exif_rating", 0, line++, FALSE);
   d->rating = dt_gui_preferences_int(grid, "ui_last/import_initial_rating", 0, line++);
   d->apply_metadata = dt_gui_preferences_bool(grid, "ui_last/import_apply_metadata", 0, line++, FALSE);
@@ -1396,7 +1393,6 @@ static void _apply_preferences(const char *pref, dt_lib_module_t *self)
   g_list_free_full(prefs, g_free);
 
   dt_lib_import_t *d = (dt_lib_import_t *)self->data;
-  dt_gui_preferences_bool_update(d->ignore_jpegs);
   dt_gui_preferences_bool_update(d->ignore_exif);
   dt_gui_preferences_int_update(d->rating);
   dt_gui_preferences_bool_update(d->apply_metadata);
