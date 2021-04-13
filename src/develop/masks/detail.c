@@ -16,6 +16,12 @@
     along with darktable.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+// We don't want to use the SIMD version as we might access unaligned memory
+static inline float sqrf(float a)
+{
+  return a * a;
+}
+
 void dt_masks_extend_border(float *mask, const int width, const int height, const int border)
 {
   if(border <= 0) return;
@@ -25,7 +31,7 @@ void dt_masks_extend_border(float *mask, const int width, const int height, cons
     for(int i = 0; i < border; i++)
     {
       mask[idx + i] = mask[idx + border];
-      mask[idx + width - i - 1] = mask[idx + width - border -1];   
+      mask[idx + width - i - 1] = mask[idx + width - border -1];
     }
   }
   for(int col = 0; col < width; col++)
@@ -36,21 +42,21 @@ void dt_masks_extend_border(float *mask, const int width, const int height, cons
     {
       mask[col + i * width] = top;
       mask[col + (height - i - 1) * width] = bot;
-    }   
+    }
   }
 }
 
 void dt_masks_blur_9x9(float *const restrict src, float *const restrict out, const int width, const int height, const float sigma)
 {
-  // For a blurring sigma of 2.0f a 13x13 kernel would be optimally required but the 9x9 is by far good enough here 
+  // For a blurring sigma of 2.0f a 13x13 kernel would be optimally required but the 9x9 is by far good enough here
   float kernel[9][9];
-  const float temp = 2.0f * sqf(sigma);
+  const float temp = 2.0f * sqrf(sigma);
   float sum = 0.0f;
   for(int i = -4; i <= 4; i++)
   {
     for(int j = -4; j <= 4; j++)
     {
-      kernel[i + 4][j + 4] = expf( -(sqf(i) + sqf(j)) / temp);
+      kernel[i + 4][j + 4] = expf( -(sqrf(i) + sqrf(j)) / temp);
       sum += kernel[i + 4][j + 4];
     }
   }
@@ -80,7 +86,7 @@ void dt_masks_blur_9x9(float *const restrict src, float *const restrict out, con
   #pragma omp parallel for simd default(none) \
   dt_omp_firstprivate(src, out) \
   dt_omp_sharedconst(c42, c41, c40, c33, c32, c31, c30, c22, c21, c20, c11, c10, c00, w1, w2, w3, w4, width, height) \
-  schedule(simd:static) aligned(src, out : 64) 
+  schedule(simd:static) aligned(src, out : 64)
  #endif
   for(int row = 4; row < height - 4; row++)
   {
@@ -105,7 +111,7 @@ void dt_masks_blur_9x9(float *const restrict src, float *const restrict out, con
                         c11 * (src[i - w1 - 1] + src[i - w1 + 1] + src[i + w1 - 1] + src[i + w1 + 1]) +
                         c10 * (src[i - w1] + src[i - 1] + src[i + 1] + src[i + w1]) +
                         c00 * src[i];
-      out[i] = clamp_simd(val);
+      out[i] = fminf(1.0f, fmaxf(0.0f, val));
     }
   }
 }
@@ -116,7 +122,7 @@ void dt_masks_calc_luminance_mask(float *const restrict src, float *const restri
 #ifdef _OPENMP
   #pragma omp parallel for simd default(none) \
   dt_omp_firstprivate(mask, src, msize) \
-  schedule(simd:static) aligned(mask, src : 64) 
+  schedule(simd:static) aligned(mask, src : 64)
 #endif
   for(int idx =0; idx < msize; idx++)
   {
@@ -139,23 +145,23 @@ void dt_masks_calc_detail_mask(float *const restrict src, float *const restrict 
 #ifdef _OPENMP
   #pragma omp parallel for simd default(none) \
   dt_omp_firstprivate(src, tmp, width, height, scale) \
-  schedule(simd:static) aligned(src, tmp : 64) 
+  schedule(simd:static) aligned(src, tmp : 64)
  #endif
   for(int row = 2; row < height - 2; row++)
   {
     for(int col = 2, idx = row * width + col; col < width - 2; col++, idx++)
     {
-      tmp[idx] = scale * sqrtf(sqf(src[idx+1] - src[idx-1]) + sqf(src[idx + width]   - src[idx - width]) +
-                                sqf(src[idx+2] - src[idx-2]) + sqf(src[idx + 2*width] - src[idx - 2*width]));
+      tmp[idx] = scale * sqrtf(sqrf(src[idx+1] - src[idx-1]) + sqrf(src[idx + width]   - src[idx - width]) +
+                               sqrf(src[idx+2] - src[idx-2]) + sqrf(src[idx + 2*width] - src[idx - 2*width]));
     }
   }
-  dt_masks_extend_border(tmp, width, height, 2);  
+  dt_masks_extend_border(tmp, width, height, 2);
 
   const int msize = width * height;
 #ifdef _OPENMP
   #pragma omp parallel for simd default(none) \
   dt_omp_firstprivate(tmp, msize, threshold, detail) \
-  schedule(simd:static) aligned(tmp : 64) 
+  schedule(simd:static) aligned(tmp : 64)
 #endif
   for(int idx = 0; idx < msize; idx++)
   {
@@ -164,4 +170,3 @@ void dt_masks_calc_detail_mask(float *const restrict src, float *const restrict 
   }
   dt_masks_blur_9x9(tmp, out, width, height, 2.0f);
 }
-

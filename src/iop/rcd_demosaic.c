@@ -1,6 +1,6 @@
 /*
     This file is part of darktable,
-    Copyright (C) 2010-2020 darktable developers.
+    Copyright (C) 2010-2021 darktable developers.
 
     darktable is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -49,24 +49,24 @@
 #endif
 
 /* We don't want to use the -Ofast option in dt as it effects are not well specified and there have been issues
-   leading to crashes. 
+   leading to crashes.
    But we can use the 'fast-math' option in code sections if input data and algorithms are well defined.
-    
+
    We have defined input data and make sure there are no divide-by-zero or overflows by chosen eps
-   Reordering of instructions might lead to a slight loss of presision whigh is not significant here.  
+   Reordering of instructions might lead to a slight loss of presision whigh is not significant here.
    Not necessary in this code section
      threadsafe handling of errno
      signed zero handling
      handling of math interrupts
-     handling of rounding 
+     handling of rounding
      handling of overflows
 
-   The 'fp-contract=fast' option enables fused multiply&add if available 
+   The 'fp-contract=fast' option enables fused multiply&add if available
 */
 
 #ifdef __GNUC__
   #pragma GCC push_options
-  #pragma GCC optimize ("fast-math", "fp-contract=fast") 
+  #pragma GCC optimize ("fast-math", "fp-contract=fast")
 #endif
 
 #ifdef __GNUC__
@@ -97,14 +97,20 @@ static INLINE float intp(float a, float b, float c)
     return a * (b - c) + c;
 }
 
-// We might have negative data in input and also want to normalise 
+// We might have negative data in input and also want to normalise
 static INLINE float safe_in(float a, float scale)
 {
   return fmaxf(0.0f, a) * scale;
 }
 
+// We don't want to use the SIMD version as we might access unaligned memory
+static INLINE float sqrf(float a)
+{
+  return a * a;
+}
+
 // The border interpolation has been taken from rt, adapted to dt.
-// The original dcraw based code had much stronger color artefacts in the border region. 
+// The original dcraw based code had much stronger color artefacts in the border region.
 static INLINE void approxit(float *out, const float *cfa, const float *sum, const int idx, const int c)
 {
   float (*rgb)[4] = (void *)out;
@@ -159,7 +165,7 @@ static void rcd_border_interpolate(dt_dev_pixelpipe_iop_t *piece, float *out, co
           }
         }
       }
-      approxit(out, cfa, sum, i * width + j, FCRCD(i, j)); 
+      approxit(out, cfa, sum, i * width + j, FCRCD(i, j));
     }
 
     for(int j = width - border; j < width; j++)
@@ -177,7 +183,7 @@ static void rcd_border_interpolate(dt_dev_pixelpipe_iop_t *piece, float *out, co
           }
         }
       }
-      approxit(out, cfa, sum, i * width + j, FCRCD(i, j)); 
+      approxit(out, cfa, sum, i * width + j, FCRCD(i, j));
     }
   }
   for(int i = 0; i < border; i++)
@@ -198,7 +204,7 @@ static void rcd_border_interpolate(dt_dev_pixelpipe_iop_t *piece, float *out, co
           }
         }
       }
-      approxit(out, cfa, sum, i * width + j, FCRCD(i, j)); 
+      approxit(out, cfa, sum, i * width + j, FCRCD(i, j));
     }
   }
   for(int i = height - border; i < height; i++)
@@ -219,7 +225,7 @@ static void rcd_border_interpolate(dt_dev_pixelpipe_iop_t *piece, float *out, co
           }
         }
       }
-      approxit(out, cfa, sum, i * width + j, FCRCD(i, j)); 
+      approxit(out, cfa, sum, i * width + j, FCRCD(i, j));
     }
   }
 }
@@ -251,7 +257,7 @@ static void rcd_demosaic(dt_dev_pixelpipe_iop_t *piece, float *const restrict ou
   #pragma omp parallel \
   dt_omp_firstprivate(width, height, cfarray, out, in, scaler, revscaler)
 #endif
-  { 
+  {
     float *const VH_Dir = dt_alloc_align_float((size_t) RCD_TILESIZE * RCD_TILESIZE);
     memset(VH_Dir, 0, sizeof(*VH_Dir) * RCD_TILESIZE * RCD_TILESIZE);
     float *const PQ_Dir = dt_alloc_align_float((size_t) RCD_TILESIZE * RCD_TILESIZE / 2);
@@ -261,8 +267,8 @@ static void rcd_demosaic(dt_dev_pixelpipe_iop_t *piece, float *const restrict ou
     float *const P_CDiff_Hpf = dt_alloc_align_float((size_t) RCD_TILESIZE * RCD_TILESIZE / 2);
     memset(P_CDiff_Hpf, 0, sizeof(*P_CDiff_Hpf) * RCD_TILESIZE * RCD_TILESIZE / 2);
     float *const Q_CDiff_Hpf = dt_alloc_align_float((size_t) RCD_TILESIZE * RCD_TILESIZE / 2);
-    memset(Q_CDiff_Hpf, 0, sizeof(*Q_CDiff_Hpf) * RCD_TILESIZE * RCD_TILESIZE / 2);  
- 
+    memset(Q_CDiff_Hpf, 0, sizeof(*Q_CDiff_Hpf) * RCD_TILESIZE * RCD_TILESIZE / 2);
+
     float (*const rgb)[RCD_TILESIZE * RCD_TILESIZE] = (void *)dt_alloc_align_float((size_t)3 * RCD_TILESIZE * RCD_TILESIZE);
 
     // No overlapping use so re-use same buffer
@@ -304,7 +310,7 @@ static void rcd_demosaic(dt_dev_pixelpipe_iop_t *piece, float *const restrict ou
         {
           for(int col = 4, indx = row * RCD_TILESIZE + col; col < tileCols - 4; col++, indx++ )
           {
-            bufferV[row - 3][col - 4] = sqf((cfa[indx - w3] - cfa[indx - w1] - cfa[indx + w1] + cfa[indx + w3]) - 3.0f * (cfa[indx - w2] + cfa[indx + w2]) + 6.0f * cfa[indx]);
+            bufferV[row - 3][col - 4] = sqrf((cfa[indx - w3] - cfa[indx - w1] - cfa[indx + w1] + cfa[indx + w3]) - 3.0f * (cfa[indx - w2] + cfa[indx + w2]) + 6.0f * cfa[indx]);
           }
         }
 
@@ -320,16 +326,16 @@ static void rcd_demosaic(dt_dev_pixelpipe_iop_t *piece, float *const restrict ou
         {
           for(int col = 3, indx = row * RCD_TILESIZE + col; col < tileCols - 3; col++, indx++)
           {
-            bufferH[col - 3] = sqf((cfa[indx -  3] - cfa[indx -  1] - cfa[indx +  1] + cfa[indx +  3]) - 3.0f * (cfa[indx -  2] + cfa[indx +  2]) + 6.0f * cfa[indx]);
+            bufferH[col - 3] = sqrf((cfa[indx -  3] - cfa[indx -  1] - cfa[indx +  1] + cfa[indx +  3]) - 3.0f * (cfa[indx -  2] + cfa[indx +  2]) + 6.0f * cfa[indx]);
           }
           for(int col = 4, indx = (row + 1) * RCD_TILESIZE + col; col < tileCols - 4; col++, indx++)
           {
-            V2[col - 4] = sqf((cfa[indx - w3] - cfa[indx - w1] - cfa[indx + w1] + cfa[indx + w3]) - 3.0f * (cfa[indx - w2] + cfa[indx + w2]) + 6.0f * cfa[indx]);
+            V2[col - 4] = sqrf((cfa[indx - w3] - cfa[indx - w1] - cfa[indx + w1] + cfa[indx + w3]) - 3.0f * (cfa[indx - w2] + cfa[indx + w2]) + 6.0f * cfa[indx]);
           }
           for(int col = 4, indx = row * RCD_TILESIZE + col; col < tileCols - 4; col++, indx++ )
           {
-            float V_Stat = fmaxf(epssq,      V0[col - 4] +      V1[col - 4] +      V2[col - 4]);
-            float H_Stat = fmaxf(epssq, bufferH[col - 4] + bufferH[col - 3] + bufferH[col - 2]);
+            const float V_Stat = fmaxf(epssq,      V0[col - 4] +      V1[col - 4] +      V2[col - 4]);
+            const float H_Stat = fmaxf(epssq, bufferH[col - 4] + bufferH[col - 3] + bufferH[col - 2]);
             VH_Dir[indx] = V_Stat / ( V_Stat + H_Stat );
           }
           // rolling the line pointers
@@ -390,8 +396,8 @@ static void rcd_demosaic(dt_dev_pixelpipe_iop_t *piece, float *const restrict ou
         {
           for(int col = 3, indx = row * RCD_TILESIZE + col, indx2 = indx / 2; col < tileCols - 3; col+=2, indx+=2, indx2++)
           {
-            P_CDiff_Hpf[indx2] = sqf((cfa[indx - w3 - 3] - cfa[indx - w1 - 1] - cfa[indx + w1 + 1] + cfa[indx + w3 + 3]) - 3.0f * (cfa[indx - w2 - 2] + cfa[indx + w2 + 2]) + 6.0f * cfa[indx]);
-            Q_CDiff_Hpf[indx2] = sqf((cfa[indx - w3 + 3] - cfa[indx - w1 + 1] - cfa[indx + w1 - 1] + cfa[indx + w3 - 3]) - 3.0f * (cfa[indx - w2 + 2] + cfa[indx + w2 - 2]) + 6.0f * cfa[indx]);
+            P_CDiff_Hpf[indx2] = sqrf((cfa[indx - w3 - 3] - cfa[indx - w1 - 1] - cfa[indx + w1 + 1] + cfa[indx + w3 + 3]) - 3.0f * (cfa[indx - w2 - 2] + cfa[indx + w2 + 2]) + 6.0f * cfa[indx]);
+            Q_CDiff_Hpf[indx2] = sqrf((cfa[indx - w3 + 3] - cfa[indx - w1 + 1] - cfa[indx + w1 - 1] + cfa[indx + w3 - 3]) - 3.0f * (cfa[indx - w2 + 2] + cfa[indx + w2 - 2]) + 6.0f * cfa[indx]);
           }
         }
         // Step 4.1: Obtain the P/Q diagonals directional discrimination strength
@@ -399,8 +405,8 @@ static void rcd_demosaic(dt_dev_pixelpipe_iop_t *piece, float *const restrict ou
         {
           for(int col = 4 + (FCRCD(row, 0) & 1), indx = row * RCD_TILESIZE + col, indx2 = indx / 2, indx3 = (indx - w1 - 1) / 2, indx4 = (indx + w1 - 1) / 2; col < tileCols - 4; col += 2, indx += 2, indx2++, indx3++, indx4++ )
           {
-            float P_Stat = fmaxf(epssq, P_CDiff_Hpf[indx3]     + P_CDiff_Hpf[indx2] + P_CDiff_Hpf[indx4 + 1]);
-            float Q_Stat = fmaxf(epssq, Q_CDiff_Hpf[indx3 + 1] + Q_CDiff_Hpf[indx2] + Q_CDiff_Hpf[indx4]);
+            const float P_Stat = fmaxf(epssq, P_CDiff_Hpf[indx3]     + P_CDiff_Hpf[indx2] + P_CDiff_Hpf[indx4 + 1]);
+            const float Q_Stat = fmaxf(epssq, Q_CDiff_Hpf[indx3 + 1] + Q_CDiff_Hpf[indx2] + Q_CDiff_Hpf[indx4]);
             PQ_Dir[indx2] = P_Stat / (P_Stat + Q_Stat);
           }
         }
@@ -411,26 +417,26 @@ static void rcd_demosaic(dt_dev_pixelpipe_iop_t *piece, float *const restrict ou
           for(int col = 4 + (FCRCD(row, 0) & 1), indx = row * RCD_TILESIZE + col, c = 2 - FCRCD(row, col), pqindx = indx / 2, pqindx2 = (indx - w1 - 1) / 2, pqindx3 = (indx + w1 - 1) / 2; col < tileCols - 4; col += 2, indx += 2, pqindx++, pqindx2++, pqindx3++)
           {
             // Refined P/Q diagonal local discrimination
-            float PQ_Central_Value   = PQ_Dir[pqindx];
-            float PQ_Neighbourhood_Value = 0.25f * (PQ_Dir[pqindx2] + PQ_Dir[pqindx2 + 1] + PQ_Dir[pqindx3] + PQ_Dir[pqindx3 + 1]);
+            const float PQ_Central_Value   = PQ_Dir[pqindx];
+            const float PQ_Neighbourhood_Value = 0.25f * (PQ_Dir[pqindx2] + PQ_Dir[pqindx2 + 1] + PQ_Dir[pqindx3] + PQ_Dir[pqindx3 + 1]);
 
-            float PQ_Disc = (fabs(0.5f - PQ_Central_Value) < fabs(0.5f - PQ_Neighbourhood_Value)) ? PQ_Neighbourhood_Value : PQ_Central_Value;
+            const float PQ_Disc = (fabs(0.5f - PQ_Central_Value) < fabs(0.5f - PQ_Neighbourhood_Value)) ? PQ_Neighbourhood_Value : PQ_Central_Value;
 
             // Diagonal gradients
-            float NW_Grad = eps + fabs(rgb[c][indx - w1 - 1] - rgb[c][indx + w1 + 1]) + fabs(rgb[c][indx - w1 - 1] - rgb[c][indx - w3 - 3]) + fabs(rgb[1][indx] - rgb[1][indx - w2 - 2]);
-            float NE_Grad = eps + fabs(rgb[c][indx - w1 + 1] - rgb[c][indx + w1 - 1]) + fabs(rgb[c][indx - w1 + 1] - rgb[c][indx - w3 + 3]) + fabs(rgb[1][indx] - rgb[1][indx - w2 + 2]);
-            float SW_Grad = eps + fabs(rgb[c][indx - w1 + 1] - rgb[c][indx + w1 - 1]) + fabs(rgb[c][indx + w1 - 1] - rgb[c][indx + w3 - 3]) + fabs(rgb[1][indx] - rgb[1][indx + w2 - 2]);
-            float SE_Grad = eps + fabs(rgb[c][indx - w1 - 1] - rgb[c][indx + w1 + 1]) + fabs(rgb[c][indx + w1 + 1] - rgb[c][indx + w3 + 3]) + fabs(rgb[1][indx] - rgb[1][indx + w2 + 2]);
+            const float NW_Grad = eps + fabs(rgb[c][indx - w1 - 1] - rgb[c][indx + w1 + 1]) + fabs(rgb[c][indx - w1 - 1] - rgb[c][indx - w3 - 3]) + fabs(rgb[1][indx] - rgb[1][indx - w2 - 2]);
+            const float NE_Grad = eps + fabs(rgb[c][indx - w1 + 1] - rgb[c][indx + w1 - 1]) + fabs(rgb[c][indx - w1 + 1] - rgb[c][indx - w3 + 3]) + fabs(rgb[1][indx] - rgb[1][indx - w2 + 2]);
+            const float SW_Grad = eps + fabs(rgb[c][indx - w1 + 1] - rgb[c][indx + w1 - 1]) + fabs(rgb[c][indx + w1 - 1] - rgb[c][indx + w3 - 3]) + fabs(rgb[1][indx] - rgb[1][indx + w2 - 2]);
+            const float SE_Grad = eps + fabs(rgb[c][indx - w1 - 1] - rgb[c][indx + w1 + 1]) + fabs(rgb[c][indx + w1 + 1] - rgb[c][indx + w3 + 3]) + fabs(rgb[1][indx] - rgb[1][indx + w2 + 2]);
 
             // Diagonal colour differences
-            float NW_Est = rgb[c][indx - w1 - 1] - rgb[1][indx - w1 - 1];
-            float NE_Est = rgb[c][indx - w1 + 1] - rgb[1][indx - w1 + 1];
-            float SW_Est = rgb[c][indx + w1 - 1] - rgb[1][indx + w1 - 1];
-            float SE_Est = rgb[c][indx + w1 + 1] - rgb[1][indx + w1 + 1];
+            const float NW_Est = rgb[c][indx - w1 - 1] - rgb[1][indx - w1 - 1];
+            const float NE_Est = rgb[c][indx - w1 + 1] - rgb[1][indx - w1 + 1];
+            const float SW_Est = rgb[c][indx + w1 - 1] - rgb[1][indx + w1 - 1];
+            const float SE_Est = rgb[c][indx + w1 + 1] - rgb[1][indx + w1 + 1];
 
             // P/Q estimations
-            float P_Est = (NW_Grad * SE_Est + SE_Grad * NW_Est) / (NW_Grad + SE_Grad);
-            float Q_Est = (NE_Grad * SW_Est + SW_Grad * NE_Est) / (NE_Grad + SW_Grad);
+            const float P_Est = (NW_Grad * SE_Est + SE_Grad * NW_Est) / (NW_Grad + SE_Grad);
+            const float Q_Est = (NE_Grad * SW_Est + SW_Grad * NE_Est) / (NE_Grad + SW_Grad);
 
             // R@B and B@R interpolation
             rgb[c][indx] = rgb[1][indx] + intp(PQ_Disc, Q_Est, P_Est);
@@ -483,7 +489,7 @@ static void rcd_demosaic(dt_dev_pixelpipe_iop_t *piece, float *const restrict ou
             }
           }
         }
-          
+
         // For the outermost tiles in all directions we can use a smaller border margin
         const int first_vertical =   rowStart + ((tile_vertical == 0) ? RCD_MARGIN : RCD_BORDER);
         const int last_vertical =    rowEnd   - ((tile_vertical == num_vertical - 1)     ? RCD_MARGIN : RCD_BORDER);
@@ -511,7 +517,7 @@ static void rcd_demosaic(dt_dev_pixelpipe_iop_t *piece, float *const restrict ou
   rcd_border_interpolate(piece, out, in, roi_out, roi_in, filters, RCD_MARGIN);
 }
 
-// revert rcd specific aggressive optimizing 
+// revert rcd specific aggressive optimizing
 #ifdef __GNUC__
   #pragma GCC pop_options
 #endif
@@ -526,4 +532,3 @@ static void rcd_demosaic(dt_dev_pixelpipe_iop_t *piece, float *const restrict ou
 #undef w4
 #undef eps
 #undef epssq
-
