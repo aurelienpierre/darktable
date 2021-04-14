@@ -520,8 +520,6 @@ void _process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const
   dt_iop_spots_params_t *d = (dt_iop_spots_params_t *)piece->data;
   dt_develop_blend_params_t *bp = self->blend_params;
 
-  fprintf(stdout, "width: %d, hight: %d\n", roi_out->width, roi_out->height);
-
 // we don't modify most of the image:
 #ifdef _OPENMP
 #pragma omp parallel for default(none) \

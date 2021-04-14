@@ -2608,13 +2608,13 @@ int dt_dev_distort_transform_locked(dt_develop_t *dev, dt_dev_pixelpipe_t *pipe,
   if(!current_module)
   {
     fprintf(stdout, "we have no module at priority %f\n", iop_order);
-    if(!(darktable.develop->proxy.masks.coordinates  == DEVELOP_COORDINATES_VIEWPORT_PLANAR))
+    if(darktable.develop->proxy.masks.coordinates  == DEVELOP_COORDINATES_VIEWPORT_PLANAR)
       return 1;
   }
   else
   {
     fprintf(stdout, "we have module at priority %f\n", iop_order);
-    if(!(current_module->blend_params->coordinates_reference == DEVELOP_COORDINATES_VIEWPORT_PLANAR))
+    if(current_module->blend_params->coordinates_reference == DEVELOP_COORDINATES_VIEWPORT_PLANAR)
       return 1;
   }
   while(modules)
@@ -2666,13 +2666,13 @@ int dt_dev_distort_backtransform_locked(dt_develop_t *dev, dt_dev_pixelpipe_t *p
   if(!current_module)
   {
     fprintf(stdout, "we have no module at priority %f\n", iop_order);
-    if(!(darktable.develop->proxy.masks.coordinates  == DEVELOP_COORDINATES_VIEWPORT_PLANAR))
+    if(darktable.develop->proxy.masks.coordinates  == DEVELOP_COORDINATES_VIEWPORT_PLANAR)
       return 1;
   }
   else
   {
     fprintf(stdout, "we have module at priority %f\n", iop_order);
-    if(!(current_module->blend_params->coordinates_reference == DEVELOP_COORDINATES_VIEWPORT_PLANAR))
+    if(current_module->blend_params->coordinates_reference == DEVELOP_COORDINATES_VIEWPORT_PLANAR)
       return 1;
   }
 
