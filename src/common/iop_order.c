@@ -400,6 +400,27 @@ dt_iop_order_entry_t *dt_ioppr_get_iop_order_entry(GList *iop_order_list, const 
     return NULL;
 }
 
+// returns the module at position iop_order
+struct dt_iop_module_t *dt_ioppr_get_pipe_nth_iop_module(GList *iop_list, int iop_order)
+{
+  GList *link = NULL;
+
+  for(GList *iops_order = iop_list; iops_order; iops_order = g_list_next(iops_order))
+  {
+    dt_iop_module_t *module = (dt_iop_module_t *)iops_order->data;
+    if(module->iop_order == iop_order)
+    {
+      link = iops_order;
+      break;
+    }
+  }
+
+  if(link)
+    return (dt_iop_module_t *)link->data;
+  else
+    return NULL;
+}
+
 // returns the iop_order associated with the iop order entry that matches operation == op_name
 int dt_ioppr_get_iop_order(GList *iop_order_list, const char *op_name, const int multi_priority)
 {
@@ -1036,7 +1057,7 @@ void dt_ioppr_update_for_entries(dt_develop_t *dev, GList *entry_list, gboolean 
         // update multi_priority to be unique in iop list
         int multi_priority = start_multi_priority;
         int nb = 0;
-        
+
         for(const GList *s = entry_list; s; s = g_list_next(s))
         {
           dt_iop_order_entry_t *item = (dt_iop_order_entry_t *)s->data;
@@ -1502,7 +1523,7 @@ gboolean dt_ioppr_check_can_move_after_iop(GList *iop_list, dt_iop_module_t *mod
 
   // moving after module_prev is the same as moving before the very next one after module_prev
   dt_iop_module_t *module_next = NULL;
-  
+
   for(const GList *modules = g_list_last(iop_list); modules; modules = g_list_previous(modules))
   {
     dt_iop_module_t *mod = (dt_iop_module_t *)modules->data;

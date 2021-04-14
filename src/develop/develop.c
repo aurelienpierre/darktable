@@ -1014,7 +1014,7 @@ void dt_dev_add_masks_history_item_ext(dt_develop_t *dev, dt_iop_module_t *_modu
     for(GList *modules = dev->iop; modules; modules = g_list_next(modules))
     {
       dt_iop_module_t *mod = (dt_iop_module_t *)(modules->data);
-      if(strcmp(mod->op, "mask_manager") == 0)
+      if(strcmp(mod->op, "  manager") == 0)
       {
         module = mod;
         break;
@@ -2602,6 +2602,21 @@ int dt_dev_distort_transform_locked(dt_develop_t *dev, dt_dev_pixelpipe_t *pipe,
 {
   GList *modules = pipe->iop;
   GList *pieces = pipe->nodes;
+
+  // If coordinates space is viewport planar, we don't need transforms
+  dt_iop_module_t *current_module = dt_ioppr_get_pipe_nth_iop_module(pipe->iop, iop_order);
+  if(!current_module)
+  {
+    fprintf(stdout, "we have no module at priority %f\n", iop_order);
+    if(!(darktable.develop->proxy.masks.coordinates  == DEVELOP_COORDINATES_VIEWPORT_PLANAR))
+      return 1;
+  }
+  else
+  {
+    fprintf(stdout, "we have module at priority %f\n", iop_order);
+    if(!(current_module->blend_params->coordinates_reference == DEVELOP_COORDINATES_VIEWPORT_PLANAR))
+      return 1;
+  }
   while(modules)
   {
     if(!pieces)
@@ -2645,6 +2660,22 @@ int dt_dev_distort_backtransform_locked(dt_develop_t *dev, dt_dev_pixelpipe_t *p
 {
   GList *modules = g_list_last(pipe->iop);
   GList *pieces = g_list_last(pipe->nodes);
+
+  // If coordinates space is viewport planar, we don't need transforms
+  dt_iop_module_t *current_module = dt_ioppr_get_pipe_nth_iop_module(pipe->iop, iop_order);
+  if(!current_module)
+  {
+    fprintf(stdout, "we have no module at priority %f\n", iop_order);
+    if(!(darktable.develop->proxy.masks.coordinates  == DEVELOP_COORDINATES_VIEWPORT_PLANAR))
+      return 1;
+  }
+  else
+  {
+    fprintf(stdout, "we have module at priority %f\n", iop_order);
+    if(!(current_module->blend_params->coordinates_reference == DEVELOP_COORDINATES_VIEWPORT_PLANAR))
+      return 1;
+  }
+
   while(modules)
   {
     if(!pieces)
@@ -2653,12 +2684,13 @@ int dt_dev_distort_backtransform_locked(dt_develop_t *dev, dt_dev_pixelpipe_t *p
     }
     dt_iop_module_t *module = (dt_iop_module_t *)(modules->data);
     dt_dev_pixelpipe_iop_t *piece = (dt_dev_pixelpipe_iop_t *)(pieces->data);
-    if(piece->enabled && ((transf_direction == DT_DEV_TRANSFORM_DIR_ALL)
-                          || (transf_direction == DT_DEV_TRANSFORM_DIR_FORW_INCL && module->iop_order >= iop_order)
-                          || (transf_direction == DT_DEV_TRANSFORM_DIR_FORW_EXCL && module->iop_order > iop_order)
-                          || (transf_direction == DT_DEV_TRANSFORM_DIR_BACK_INCL && module->iop_order <= iop_order)
-                          || (transf_direction == DT_DEV_TRANSFORM_DIR_BACK_EXCL && module->iop_order < iop_order)) &&
-      !(dev->gui_module && dev->gui_module->operation_tags_filter() & module->operation_tags()))
+    if(piece->enabled
+       && ((transf_direction == DT_DEV_TRANSFORM_DIR_ALL)
+           || (transf_direction == DT_DEV_TRANSFORM_DIR_FORW_INCL && module->iop_order >= iop_order)
+           || (transf_direction == DT_DEV_TRANSFORM_DIR_FORW_EXCL && module->iop_order > iop_order)
+           || (transf_direction == DT_DEV_TRANSFORM_DIR_BACK_INCL && module->iop_order <= iop_order)
+           || (transf_direction == DT_DEV_TRANSFORM_DIR_BACK_EXCL && module->iop_order < iop_order))
+       && !(dev->gui_module && dev->gui_module->operation_tags_filter() & module->operation_tags()))
     {
       module->distort_backtransform(module, piece, points, points_count);
     }

@@ -353,6 +353,7 @@ static gboolean _edit_masks(GtkWidget *widget, GdkEventButton *e, dt_iop_module_
 
   dt_iop_color_picker_reset(self, TRUE);
 
+  darktable.develop->proxy.masks.coordinates = self->blend_params->coordinates_reference;
   dt_masks_set_edit_mode(self, self->dev->form_gui->edit_mode == DT_MASKS_EDIT_FULL ? DT_MASKS_EDIT_OFF : DT_MASKS_EDIT_FULL);
 
   // update edit shapes status
@@ -518,6 +519,8 @@ void _process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const
 {
   dt_iop_spots_params_t *d = (dt_iop_spots_params_t *)piece->data;
   dt_develop_blend_params_t *bp = self->blend_params;
+
+  fprintf(stdout, "width: %d, hight: %d\n", roi_out->width, roi_out->height);
 
 // we don't modify most of the image:
 #ifdef _OPENMP
