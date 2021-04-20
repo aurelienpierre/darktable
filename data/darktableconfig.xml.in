@@ -397,14 +397,14 @@
     <name>ask_before_remove</name>
     <type>bool</type>
     <default>true</default>
-    <shortdescription>ask before removing images from database</shortdescription>
-    <longdescription>always ask the user before any image is removed from DB.</longdescription>
+    <shortdescription>ask before removing images from darktable</shortdescription>
+    <longdescription>always ask the user before any image is removed from darktable.</longdescription>
   </dtconfig>
   <dtconfig prefs="security">
     <name>ask_before_delete</name>
     <type>bool</type>
     <default>true</default>
-    <shortdescription>ask before erasing images from disk</shortdescription>
+    <shortdescription>ask before deleting images from disk</shortdescription>
     <longdescription>always ask the user before any image file is deleted</longdescription>
   </dtconfig>
   <dtconfig prefs="security">
@@ -418,7 +418,7 @@
     <name>send_to_trash</name>
     <type>bool</type>
     <default>true</default>
-    <shortdescription>send files to trash when erasing images</shortdescription>
+    <shortdescription>try to use trash when deleting images</shortdescription>
     <longdescription>send files to trash instead of permanently deleting files on system that supports it</longdescription>
   </dtconfig>
   <dtconfig prefs="security">
@@ -1979,6 +1979,12 @@
     <shortdescription>last page selected in channel mixer rgb notebook</shortdescription>
   </dtconfig>
   <dtconfig>
+    <name>plugins/darkroom/retouch/default_algo</name>
+    <type>int</type>
+    <default>2</default>
+    <shortdescription>default algorithm for the retouch module</shortdescription>
+  </dtconfig>
+  <dtconfig>
     <name>plugins/darkroom/demosaic/fdc_xover_iso</name>
     <type>int</type>
     <default>1600</default>
@@ -2462,6 +2468,69 @@
     <longdescription>height of the histogram module in the darkroom and tethering views</longdescription>
   </dtconfig>
   <dtconfig>
+    <name>plugins/darkroom/atrous/aspect_percent</name>
+    <type min="50" max="100">int</type>
+    <default>56</default>
+    <shortdescription>aspect ratio of contrast equalizer gui in per cent</shortdescription>
+    <longdescription>aspect ratio of contrast equalizer gui in per cent</longdescription>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/darkroom/denoiseprofile/aspect_percent</name>
+    <type min="50" max="100">int</type>
+    <default>56</default>
+    <shortdescription>aspect ratio of denoise (profiled) wavelets gui in per cent</shortdescription>
+    <longdescription>aspect ratio of denoise (profiled) wavelets gui in per cent</longdescription>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/darkroom/rawdenoise/aspect_percent</name>
+    <type min="50" max="100">int</type>
+    <default>56</default>
+    <shortdescription>aspect ratio of raw denoise wavelets gui in per cent</shortdescription>
+    <longdescription>aspect ratio of raw denoise wavelets gui in per cent</longdescription>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/darkroom/colorzones/aspect_percent</name>
+    <type min="50" max="100">int</type>
+    <default>56</default>
+    <shortdescription>aspect ratio of color zones graph in per cent</shortdescription>
+    <longdescription>aspect ratio of color zones graph in per cent</longdescription>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/darkroom/lowlight/aspect_percent</name>
+    <type min="50" max="100">int</type>
+    <default>56</default>
+    <shortdescription>aspect ratio of lowlight graph in per cent</shortdescription>
+    <longdescription>aspect ratio of lowlight graph in per cent</longdescription>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/darkroom/levels/aspect_percent</name>
+    <type min="25" max="100">int</type>
+    <default>56</default>
+    <shortdescription>aspect ratio of levels graph in per cent</shortdescription>
+    <longdescription>aspect ratio of levels graph in per cent</longdescription>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/darkroom/rgblevels/aspect_percent</name>
+    <type min="25" max="100">int</type>
+    <default>56</default>
+    <shortdescription>aspect ratio of rgb levels graph in per cent</shortdescription>
+    <longdescription>aspect ratio of rgb levels graph in per cent</longdescription>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/darkroom/filmicrgb/aspect_percent</name>
+    <type min="50" max="100">int</type>
+    <default>56</default>
+    <shortdescription>aspect ratio of filmic rgb graph in per cent</shortdescription>
+    <longdescription>aspect ratio of filmic rgb graph in per cent</longdescription>
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/darkroom/colorbalancergb/aspect_percent</name>
+    <type min="50" max="100">int</type>
+    <default>56</default>
+    <shortdescription>aspect ratio of color balance rgb graph in per cent</shortdescription>
+    <longdescription>aspect ratio of color balance rgb graph in per cent</longdescription>
+  </dtconfig>
+  <dtconfig>
     <name>plugins/darkroom/histogram/mode</name>
     <type>
       <enum>
@@ -2694,7 +2763,7 @@
         <option>none</option>
       </enum>
     </type>
-    <default>display-referred</default>
+    <default>scene-referred</default>
     <shortdescription>auto-apply pixel workflow defaults</shortdescription>
     <longdescription>scene-referred workflow is based on linear modules and will auto-apply filmic and exposure,\ndisplay-referred workflow is based on Lab modules and will auto-apply base curve and the legacy module pipe order.</longdescription>
   </dtconfig>
