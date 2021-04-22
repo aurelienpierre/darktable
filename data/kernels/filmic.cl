@@ -19,6 +19,8 @@
 #include "basic.cl"
 #include "noise_generator.h"
 
+#define INVERSE_SQRT_3 0.5773502691896258f
+
 // In case the OpenCL driver doesn't have a dot method
 inline float vdot(const float4 vec1, const float4 vec2)
 {
@@ -31,13 +33,15 @@ typedef enum dt_iop_filmicrgb_methods_type_t
   DT_FILMIC_METHOD_MAX_RGB = 1,
   DT_FILMIC_METHOD_LUMINANCE = 2,
   DT_FILMIC_METHOD_POWER_NORM = 3,
-  DT_FILMIC_METHOD_EUCLIDEAN_NORM = 4
+  DT_FILMIC_METHOD_EUCLIDEAN_NORM_V2 = 5,
+  DT_FILMIC_METHOD_EUCLIDEAN_NORM_V1 = 4,
 } dt_iop_filmicrgb_methods_type_t;
 
 typedef enum dt_iop_filmicrgb_colorscience_type_t
 {
   DT_FILMIC_COLORSCIENCE_V1 = 0,
   DT_FILMIC_COLORSCIENCE_V2 = 1,
+  DT_FILMIC_COLORSCIENCE_V3 = 2,
 } dt_iop_filmicrgb_colorscience_type_t;
 
 typedef enum dt_iop_filmicrgb_reconstruction_type_t
@@ -167,8 +171,11 @@ inline float get_pixel_norm(const float4 pixel, const dt_iop_filmicrgb_methods_t
     case DT_FILMIC_METHOD_POWER_NORM:
       return pixel_rgb_norm_power(pixel);
 
-    case DT_FILMIC_METHOD_EUCLIDEAN_NORM:
+    case DT_FILMIC_METHOD_EUCLIDEAN_NORM_V1:
       return pixel_rgb_norm_euclidean(pixel);
+
+    case DT_FILMIC_METHOD_EUCLIDEAN_NORM_V2:
+      return pixel_rgb_norm_euclidean(pixel) * INVERSE_SQRT_3;
 
     case DT_FILMIC_METHOD_NONE:
     default:
@@ -275,13 +282,13 @@ inline float4 filmic_split_v1(const float4 i,
   return o;
 }
 
-inline float4 filmic_split_v2(const float4 i,
-                              const float dynamic_range, const float black_exposure, const float grey_value,
-                              constant dt_colorspaces_iccprofile_info_cl_t *profile_info,
-                              read_only image2d_t lut, const int use_work_profile,
-                              const float sigma_toe, const float sigma_shoulder, const float saturation,
-                              const float4 M1, const float4 M2, const float4 M3, const float4 M4, const float4 M5,
-                              const float latitude_min, const float latitude_max, const float output_power)
+inline float4 filmic_split_v2_v3(const float4 i,
+                                 const float dynamic_range, const float black_exposure, const float grey_value,
+                                 constant dt_colorspaces_iccprofile_info_cl_t *profile_info,
+                                 read_only image2d_t lut, const int use_work_profile,
+                                 const float sigma_toe, const float sigma_shoulder, const float saturation,
+                                 const float4 M1, const float4 M2, const float4 M3, const float4 M4, const float4 M5,
+                                 const float latitude_min, const float latitude_max, const float output_power)
 {
   float4 o;
 
@@ -341,11 +348,12 @@ filmicrgb_split (read_only image2d_t in, write_only image2d_t out,
       break;
     }
     case DT_FILMIC_COLORSCIENCE_V2:
+    case DT_FILMIC_COLORSCIENCE_V3:
     {
-      o = filmic_split_v2(i, dynamic_range, black_exposure, grey_value,
-                          profile_info, lut, use_work_profile,
-                          sigma_toe, sigma_shoulder, saturation,
-                          M1, M2, M3, M4, M5, latitude_min, latitude_max, output_power);
+      o = filmic_split_v2_v3(i, dynamic_range, black_exposure, grey_value,
+                             profile_info, lut, use_work_profile,
+                             sigma_toe, sigma_shoulder, saturation,
+                             M1, M2, M3, M4, M5, latitude_min, latitude_max, output_power);
       break;
     }
   }
@@ -396,14 +404,15 @@ inline float4 filmic_chroma_v1(const float4 i,
 }
 
 
-inline float4 filmic_chroma_v2(const float4 i,
-                               const float dynamic_range, const float black_exposure, const float grey_value,
-                               constant dt_colorspaces_iccprofile_info_cl_t *profile_info,
-                               read_only image2d_t lut, const int use_work_profile,
-                               const float sigma_toe, const float sigma_shoulder, const float saturation,
-                               const float4 M1, const float4 M2, const float4 M3, const float4 M4, const float4 M5,
-                               const float latitude_min, const float latitude_max, const float output_power,
-                               const dt_iop_filmicrgb_methods_type_t variant)
+inline float4 filmic_chroma_v2_v3(const float4 i,
+                                  const float dynamic_range, const float black_exposure, const float grey_value,
+                                  constant dt_colorspaces_iccprofile_info_cl_t *profile_info,
+                                  read_only image2d_t lut, const int use_work_profile,
+                                  const float sigma_toe, const float sigma_shoulder, const float saturation,
+                                  const float4 M1, const float4 M2, const float4 M3, const float4 M4, const float4 M5,
+                                  const float latitude_min, const float latitude_max, const float output_power,
+                                  const dt_iop_filmicrgb_methods_type_t variant,
+                                  const dt_iop_filmicrgb_colorscience_type_t colorscience_version)
 {
   float norm = fmax(get_pixel_norm(i, variant, profile_info, lut, use_work_profile), NORM_MIN);
 
@@ -426,6 +435,9 @@ inline float4 filmic_chroma_v2(const float4 i,
 
   // Re-apply ratios with saturation change
   ratios = fmax(ratios + ((float4)1.0f - ratios) * ((float4)1.0f - desaturation), (float4)0.f);
+
+  if(colorscience_version == DT_FILMIC_COLORSCIENCE_V3)
+    norm /= fmax(get_pixel_norm(ratios, variant, profile_info, lut, use_work_profile), NORM_MIN);
 
   float4 o = (float4)norm * ratios;
 
@@ -474,11 +486,13 @@ filmicrgb_chroma (read_only image2d_t in, write_only image2d_t out,
       break;
     }
     case DT_FILMIC_COLORSCIENCE_V2:
+    case DT_FILMIC_COLORSCIENCE_V3:
     {
-      o = filmic_chroma_v2(i, dynamic_range, black_exposure, grey_value,
-                           profile_info, lut, use_work_profile,
-                           sigma_toe, sigma_shoulder, saturation,
-                           M1, M2, M3, M4, M5, latitude_min, latitude_max, output_power, variant);
+      o = filmic_chroma_v2_v3(i, dynamic_range, black_exposure, grey_value,
+                              profile_info, lut, use_work_profile,
+                              sigma_toe, sigma_shoulder, saturation,
+                              M1, M2, M3, M4, M5, latitude_min, latitude_max, output_power, variant,
+                              color_science);
       break;
     }
   }
