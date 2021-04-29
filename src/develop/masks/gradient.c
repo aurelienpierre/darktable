@@ -1,6 +1,6 @@
 /*
     This file is part of darktable,
-    Copyright (C) 2013-2020 darktable developers.
+    Copyright (C) 2013-2021 darktable developers.
 
     darktable is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -47,7 +47,7 @@ static void _gradient_get_distance(float x, float y, float as, dt_masks_form_gui
   {
     const float dx = x - gpt->points[k * 2];
     const float dy = y - gpt->points[k * 2 + 1];
-    const float dd = (dx * dx) + (dy * dy);
+    const float dd = sqf(dx) + sqf(dy);
     *dist = fminf(*dist, dd);
 
     close_to_controls = close_to_controls || (dd < as2);
@@ -1453,7 +1453,12 @@ static void _gradient_set_form_name(struct dt_masks_form_t *const form, const si
 static void _gradient_set_hint_message(const dt_masks_form_gui_t *const gui, const dt_masks_form_t *const form,
                                      const int opacity, char *const restrict msgbuf, const size_t msgbuf_len)
 {
-  if(gui->creation || gui->form_selected)
+  if(gui->creation)
+    g_snprintf(msgbuf, msgbuf_len,
+               _("<b>curvature</b>: scroll, <b>compression</b>: shift+scroll\n"
+                 "<b>rotation</b>: click+drag, <b>opacity</b>: ctrl+scroll (%d%%)"),
+               opacity);
+  else if(gui->form_selected)
     g_snprintf(msgbuf, msgbuf_len, _("<b>curvature</b>: scroll, <b>compression</b>: shift+scroll\n"
                                      "<b>opacity</b>: ctrl+scroll (%d%%)"), opacity);
   else if(gui->pivot_selected)
