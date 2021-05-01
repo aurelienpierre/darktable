@@ -680,6 +680,7 @@ GList *dt_ioppr_get_iop_order_list(int32_t imgid, gboolean sorted)
           _insert_before(iop_order_list, "negadoctor", "channelmixerrgb");
           _insert_before(iop_order_list, "negadoctor", "censorize");
           _insert_before(iop_order_list, "rgbcurve", "colorbalancergb");
+          _insert_before(iop_order_list, "channelmixerrgb", "diffuse");
         }
       }
       else if(version == DT_IOP_ORDER_LEGACY)
