@@ -432,8 +432,10 @@ typedef struct dt_develop_blend_params_t
   float contrast;
   /** mask brightness adjustment */
   float brightness;
+  /** details threshold */
+  float details;
   /** some reserved fields for future use */
-  uint32_t reserved[4];
+  uint32_t reserved[3];
   /** blendif parameters */
   float blendif_parameters[4 * DEVELOP_BLENDIF_SIZE];
   float blendif_boost_factors[DEVELOP_BLENDIF_SIZE];
@@ -462,6 +464,13 @@ typedef struct dt_blendop_cl_global_t
   int kernel_blendop_mask_tone_curve;
   int kernel_blendop_set_mask;
   int kernel_blendop_display_channel;
+  int kernel_calc_Y0_mask;
+  int kernel_calc_scharr_mask;
+  int kernel_write_scharr_mask;
+  int kernel_write_mask;
+  int kernel_read_mask;
+  int kernel_calc_blend;
+  int kernel_mask_blur;
 } dt_blendop_cl_global_t;
 
 
@@ -565,6 +574,7 @@ typedef struct dt_iop_gui_blend_data_t
   gboolean output_channels_shown;
 
   GtkWidget *channel_boost_factor_slider;
+  GtkWidget *details_slider;
 
   GtkWidget *masks_combo;
   GtkWidget *masks_shapes[DEVELOP_MASKS_NB_SHAPES];

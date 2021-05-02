@@ -16,6 +16,74 @@
     along with darktable.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+/* How are "detail masks" implemented?
+
+  The detail masks (DM) are used by the dual demosaicer and as a further refinement step for
+  shape / parametric masks.
+  They contain threshold weighed values of pixel-wise local signal changes so they can be
+  understood as "areas with or without local detail". 
+  
+  As the DM using algoritms (like dual demosaicing, sharpening ...) are all pixel peeping we
+  want the "original data" from the sensor to calculate it.
+  (Calculating the mask from the modules roi might not detect such regions at all because of
+  scaling / rotating artefacts, some blurring earlier in the pipeline, color changes ...)
+
+  In all cases the user interface is pretty simple, we just pass a threshold value, which
+  is in the range of -1.0 to 1.0 by an additional slider in the masks refinement section.
+  Positive values will select regions with lots of local detail, negatives select for flat areas.
+  (The dual demosaicer only wants positives as we always look for high frequency content.)
+  A threshold value of 0.0 means bypassing.
+  
+  So the first important point is:
+  We make sure taking the input data for the DM right from the demosaicer for normal raws
+  or from rawprepare in case of monochromes. This means some additional housekeeping for the
+  pixelpipe.
+  If any mask in any module selects a threshold of != 0.0 we leave a flag in the pipe struct
+  telling a) we want a DM and b) we want it from either demosaic or from rawprepare.
+  If such a flag has not been previously set we will force a pipeline reprocessing.
+  
+  gboolean dt_dev_write_rawdetail_mask(dt_dev_pixelpipe_iop_t *piece, float *const rgb, const dt_iop_roi_t *const roi_in, const int mode, const float wb[3]);
+  or it's _cl equivalent write a preliminary mask holding signal-change values for every pixel.
+  These mask values are calculated as
+  a) get Y0 for every pixel
+  b) apply a scharr operator on it
+
+  This raw detail mask (RM) is not scaled but only cropped to the roi of the writing module (demosaic
+  or rawprepare).
+  The pipe gets roi copy of the writing module so we can later scale/distort the LM.
+
+  Calculating the RM is done for performance and lower mem pressure reasons, so we don't have to
+  pass full data to the module. Also the RM can be used by other modules. 
+ 
+  If a mask uses the details refinement step it takes the raw details mask RM and calculates an
+  intermediate mask (IM) which is still not scaled but has the roi of the writing module.
+ 
+  For every pixel we calculate the IM value via a sigmoid function with the threshold and RM as parameters.
+
+  At last the IM is slightly blurred to avoid hard transitions, as there still is no scaling we can use
+  a constant sigma. As the blur_9x9 is pretty fast both in openmp/cl code paths - much faster than dt
+  gaussians - it is used here.
+  Now we have an unscaled detail mask which requires to be transformed through the pipeline using
+
+  float *dt_dev_distort_detail_mask(const dt_dev_pixelpipe_t *pipe, float *src, const dt_iop_module_t *target_module)
+
+  returning a pointer to a distorted mask (DT) with same size as used in the module wanting the refinement.
+  This DM is finally used to refine the original mask.
+
+  All other refinements and parametric parameters are untouched.
+
+  Some additional comments:
+  1. intentionally this details mask refinement has only been implemented for raws. Especially for compressed
+     inmages like jpegs or 8bit input the algo didn't work as good because of input precision and compression artefacts.
+  2. In the gui the slider is above the rest of the refinemt sliders to emphasize that blurring & feathering use the
+     mask corrected by detail refinemnt.
+  3. Of course credit goes to Ingo @heckflosse from rt team for the original idea. (in the rt world this is knowb
+     as details mask)
+  4. Thanks to rawfiner for pointing out how to use Y0 and scharr for better maths.
+
+  hanno@schwalm-bremen.de 21/04/29
+*/
+
 // We don't want to use the SIMD version as we might access unaligned memory
 static inline float sqrf(float a)
 {
@@ -117,19 +185,45 @@ void dt_masks_blur_9x9(float *const restrict src, float *const restrict out, con
   dt_masks_extend_border(out, width, height, 4);
 }
 
-void dt_masks_calc_luminance_mask(float *const restrict src, float *const restrict mask, const int width, const int height)
+void dt_masks_calc_rawdetail_mask(float *const restrict src, float *const restrict mask, float *const restrict tmp, const int width, const int height, const float wb[3])
 {
   const int msize = width * height;
 #ifdef _OPENMP
   #pragma omp parallel for simd default(none) \
-  dt_omp_firstprivate(mask, src, msize) \
-  schedule(simd:static) aligned(mask, src : 64)
+  dt_omp_firstprivate(tmp, src, msize, wb) \
+  schedule(simd:static) aligned(tmp, src : 64)
 #endif
   for(int idx =0; idx < msize; idx++)
   {
-    const float val = 0.333333333f * (src[4 * idx] + src[4 * idx + 1] + src[4 * idx + 2]);
-    mask[idx] = lab_f(val);
+    const float val = 0.333333333f * (fmaxf(src[4 * idx], 0.0f) / wb[0] + fmaxf(src[4 * idx + 1], 0.0f) / wb[1] + fmaxf(src[4 * idx + 2], 0.0f) / wb[2]);
+    tmp[idx] = sqrtf(val); // add a gamma. sqrtf should make noise variance the same for all image
   }
+
+  const float scale = 1.0f / 16.0f;
+#ifdef _OPENMP
+  #pragma omp parallel for simd default(none) \
+  dt_omp_firstprivate(mask, tmp, width, height, scale) \
+  schedule(simd:static) aligned(mask, tmp : 64)
+ #endif
+  for(int row = 1; row < height - 1; row++)
+  {
+    for(int col = 1, idx = row * width + col; col < width - 1; col++, idx++)
+    {
+      // scharr operator
+      const float gx = 47.0f * (tmp[idx-width-1] - tmp[idx-width+1])
+                    + 162.0f * (tmp[idx-1]       - tmp[idx+1])
+                     + 47.0f * (tmp[idx+width-1] - tmp[idx+width+1]);
+      const float gy = 47.0f * (tmp[idx-width-1] - tmp[idx+width-1])
+                    + 162.0f * (tmp[idx-width]   - tmp[idx+width])
+                     + 47.0f * (tmp[idx-width+1] - tmp[idx+width+1]);
+      const float gradient_magnitude = sqrtf(sqrf(gx / 256.0f) + sqrf(gy / 256.0f));
+      mask[idx] = scale * gradient_magnitude;
+      // Original code from rt
+      // tmp[idx] = scale * sqrtf(sqrf(src[idx+1] - src[idx-1]) + sqrf(src[idx + width]   - src[idx - width]) +
+      //                          sqrf(src[idx+2] - src[idx-2]) + sqrf(src[idx + 2*width] - src[idx - 2*width]));
+    }
+  }
+  dt_masks_extend_border(mask, width, height, 1);
 }
 
 static inline float calcBlendFactor(float val, float threshold)
@@ -142,31 +236,15 @@ static inline float calcBlendFactor(float val, float threshold)
 
 void dt_masks_calc_detail_mask(float *const restrict src, float *const restrict out, float *const restrict tmp, const int width, const int height, const float threshold, const gboolean detail)
 {
-  const float scale = 1.0f / 16.0f;
-#ifdef _OPENMP
-  #pragma omp parallel for simd default(none) \
-  dt_omp_firstprivate(src, tmp, width, height, scale) \
-  schedule(simd:static) aligned(src, tmp : 64)
- #endif
-  for(int row = 2; row < height - 2; row++)
-  {
-    for(int col = 2, idx = row * width + col; col < width - 2; col++, idx++)
-    {
-      tmp[idx] = scale * sqrtf(sqrf(src[idx+1] - src[idx-1]) + sqrf(src[idx + width]   - src[idx - width]) +
-                               sqrf(src[idx+2] - src[idx-2]) + sqrf(src[idx + 2*width] - src[idx - 2*width]));
-    }
-  }
-  dt_masks_extend_border(tmp, width, height, 2);
-
   const int msize = width * height;
 #ifdef _OPENMP
   #pragma omp parallel for simd default(none) \
-  dt_omp_firstprivate(tmp, msize, threshold, detail) \
-  schedule(simd:static) aligned(tmp : 64)
+  dt_omp_firstprivate(src, tmp, msize, threshold, detail) \
+  schedule(simd:static) aligned(src, tmp : 64)
 #endif
   for(int idx = 0; idx < msize; idx++)
   {
-    const float blend = calcBlendFactor(tmp[idx], threshold);
+    const float blend = calcBlendFactor(src[idx], threshold);
     tmp[idx] = detail ? blend : 1.0f - blend;
   }
   dt_masks_blur_9x9(tmp, out, width, height, 2.0f);
