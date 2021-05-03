@@ -2196,7 +2196,7 @@ static void _manage_editor_group_update_arrows(GtkWidget *box)
   for(const GList *lw_iter = lw; lw_iter; lw_iter = g_list_next(lw_iter))
   {
     GtkWidget *w = (GtkWidget *)lw_iter->data;
-    GtkWidget *hb = dt_gui_container_first_child(GTK_CONTAINER(w));
+    GtkWidget *hb = dt_gui_container_nth_child(GTK_CONTAINER(w), 1);
     if(pos > 0 && hb) // we skip the first item as it's quick access panel
     {
       GList *lw2 = gtk_container_get_children(GTK_CONTAINER(hb));
@@ -2204,8 +2204,8 @@ static void _manage_editor_group_update_arrows(GtkWidget *box)
       {
         GtkWidget *left = (GtkWidget *)lw2->data;
         GtkWidget *right = (GtkWidget *)g_list_nth_data(lw2, 2);
-        gtk_widget_set_visible(left, pos > 1);
-        gtk_widget_set_visible(right, pos < max);
+        gtk_widget_set_sensitive(left, pos > 1);
+        gtk_widget_set_sensitive(right, pos < max);
       }
       g_list_free(lw2);
     }
@@ -2635,6 +2635,16 @@ static void _manage_editor_module_add_popup(GtkWidget *widget, GdkEventButton *e
   _manage_module_add_popup(widget, gr, G_CALLBACK(_manage_editor_module_add), self, FALSE);
 }
 
+static gboolean _presets_pressed(GtkWidget *widget, GdkEventButton *event, dt_lib_module_t *self)
+{
+  if(dt_modifier_is(event->state, GDK_CONTROL_MASK))
+  {
+    manage_presets(self);
+    return TRUE;
+  }
+  return FALSE;
+}
+
 static gboolean _manage_direct_popup(GtkWidget *widget, GdkEventButton *event, dt_lib_module_t *self)
 {
   if(event->type == GDK_BUTTON_PRESS && event->button == 3)
@@ -2757,8 +2767,9 @@ void gui_init(dt_lib_module_t *self)
 
   // we load now the presets btn
   self->presets_button = dtgtk_button_new(dtgtk_cairo_paint_presets, CPF_STYLE_FLAT, NULL);
-  gtk_widget_set_tooltip_text(self->presets_button, _("presets"));
+  gtk_widget_set_tooltip_text(self->presets_button, _("presets\nctrl+click to manage"));
   gtk_box_pack_start(GTK_BOX(d->hbox_buttons), self->presets_button, FALSE, FALSE, 0);
+  g_signal_connect(self->presets_button, "button-press-event", G_CALLBACK(_presets_pressed), self);
 
   /* search box */
   GtkWidget *label = gtk_label_new(_("search module"));
@@ -3162,8 +3173,8 @@ static GtkWidget *_manage_editor_group_init_basics_box(dt_lib_module_t *self)
     GtkWidget *hb4 = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     GtkWidget *bt = dtgtk_button_new(dtgtk_cairo_paint_plus_simple,
                                      CPF_DIRECTION_LEFT | CPF_STYLE_FLAT, NULL);
-    gtk_widget_set_tooltip_text(bt, _("add widgets to the list"));
-    gtk_widget_set_name(bt, "modulegroups-add-module-btn");
+    gtk_widget_set_tooltip_text(bt, _("add widget to the quick access panel"));
+    gtk_widget_set_name(bt, "modulegroups-btn");
     g_signal_connect(G_OBJECT(bt), "button-press-event", G_CALLBACK(_manage_editor_basics_add_popup), self);
     gtk_widget_set_halign(hb4, GTK_ALIGN_CENTER);
     gtk_box_pack_start(GTK_BOX(hb4), bt, FALSE, FALSE, 0);
@@ -3186,18 +3197,7 @@ static GtkWidget *_manage_editor_group_init_modules_box(dt_lib_module_t *self, d
   GtkWidget *hb2 = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   gtk_widget_set_name(hb2, "modulegroups-header");
 
-  // left arrow
   GtkWidget *btn = NULL;
-  if(!d->edit_ro)
-  {
-    btn = dtgtk_button_new(dtgtk_cairo_paint_arrow, CPF_DIRECTION_RIGHT | CPF_STYLE_FLAT,
-                           NULL);
-    gtk_widget_set_tooltip_text(btn, _("move group to the left"));
-    g_object_set_data(G_OBJECT(btn), "group", gr);
-    g_signal_connect(G_OBJECT(btn), "button-press-event", G_CALLBACK(_manage_editor_group_move_left), self);
-    gtk_box_pack_start(GTK_BOX(hb2), btn, FALSE, TRUE, 0);
-  }
-
   GtkWidget *hb3 = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   gtk_widget_set_name(hb3, "modulegroups-header-center");
   gtk_widget_set_hexpand(hb3, TRUE);
@@ -3233,17 +3233,6 @@ static GtkWidget *_manage_editor_group_init_modules_box(dt_lib_module_t *self, d
 
   gtk_box_pack_start(GTK_BOX(hb2), hb3, FALSE, TRUE, 0);
 
-  // right arrow
-  if(!d->edit_ro)
-  {
-    btn = dtgtk_button_new(dtgtk_cairo_paint_arrow, CPF_DIRECTION_LEFT | CPF_STYLE_FLAT,
-                           NULL);
-    gtk_widget_set_tooltip_text(btn, _("move group to the right"));
-    g_object_set_data(G_OBJECT(btn), "group", gr);
-    g_signal_connect(G_OBJECT(btn), "button-press-event", G_CALLBACK(_manage_editor_group_move_right), self);
-    gtk_box_pack_end(GTK_BOX(hb2), btn, FALSE, TRUE, 0);
-  }
-
   gtk_box_pack_start(GTK_BOX(vb2), hb2, FALSE, TRUE, 0);
 
   // chosen modules
@@ -3258,14 +3247,37 @@ static GtkWidget *_manage_editor_group_init_modules_box(dt_lib_module_t *self, d
   if(!d->edit_ro)
   {
     GtkWidget *hb4 = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+
+    // left arrow
+    btn = dtgtk_button_new(dtgtk_cairo_paint_arrow, CPF_DIRECTION_RIGHT | CPF_STYLE_FLAT,
+                           NULL);
+    gtk_widget_set_name(btn, "modulegroups-btn");
+    gtk_widget_set_tooltip_text(btn, _("move group to the left"));
+    g_object_set_data(G_OBJECT(btn), "group", gr);
+    g_signal_connect(G_OBJECT(btn), "button-press-event", G_CALLBACK(_manage_editor_group_move_left), self);
+    gtk_box_pack_start(GTK_BOX(hb4), btn, FALSE, FALSE, 2);
+
+    // plus button
+    GtkWidget *plusbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     GtkWidget *bt = dtgtk_button_new(dtgtk_cairo_paint_plus_simple,
                                      CPF_DIRECTION_LEFT | CPF_STYLE_FLAT, NULL);
-    gtk_widget_set_tooltip_text(bt, _("add module to the list"));
-    gtk_widget_set_name(bt, "modulegroups-add-module-btn");
+    gtk_widget_set_tooltip_text(bt, _("add module to the group"));
+    gtk_widget_set_name(bt, "modulegroups-btn");
     g_object_set_data(G_OBJECT(bt), "group", gr);
     g_signal_connect(G_OBJECT(bt), "button-press-event", G_CALLBACK(_manage_editor_module_add_popup), self);
-    gtk_widget_set_halign(hb4, GTK_ALIGN_CENTER);
-    gtk_box_pack_start(GTK_BOX(hb4), bt, FALSE, FALSE, 0);
+    gtk_widget_set_halign(plusbox, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(plusbox), bt, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(hb4), plusbox, TRUE, TRUE, 0);
+
+    //right arrow
+    btn = dtgtk_button_new(dtgtk_cairo_paint_arrow, CPF_DIRECTION_LEFT | CPF_STYLE_FLAT,
+                           NULL);
+    gtk_widget_set_name(btn, "modulegroups-btn");
+    gtk_widget_set_tooltip_text(btn, _("move group to the right"));
+    g_object_set_data(G_OBJECT(btn), "group", gr);
+    g_signal_connect(G_OBJECT(btn), "button-press-event", G_CALLBACK(_manage_editor_group_move_right), self);
+    gtk_box_pack_end(GTK_BOX(hb4), btn, FALSE, FALSE, 2);
+
     gtk_box_pack_start(GTK_BOX(vb2), hb4, FALSE, FALSE, 0);
   }
 
@@ -3550,6 +3562,7 @@ static void _manage_editor_load(const char *preset, dt_lib_module_t *self)
 
   // we remove all widgets from the groups-box
   dt_gui_container_destroy_children(GTK_CONTAINER(d->preset_groups_box));
+  gtk_box_set_homogeneous(GTK_BOX(d->preset_groups_box), TRUE);
 
   // we select the right preset in the combobox (or we select the first one)
   gboolean sel_ok = FALSE;
@@ -3769,27 +3782,27 @@ static void _manage_show_window(dt_lib_module_t *self)
   gtk_widget_set_name(hb, "modulegroups_top_box");
   GtkWidget *vb = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   GtkWidget *hb2 = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  gtk_box_pack_start(GTK_BOX(hb2), gtk_label_new(_("preset : ")), FALSE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(hb2), gtk_label_new(_("preset : ")), FALSE, TRUE, 2);
   d->presets_combo = gtk_combo_box_text_new();
   g_signal_connect(G_OBJECT(d->presets_combo), "changed", G_CALLBACK(_manage_preset_change), self);
-  gtk_box_pack_start(GTK_BOX(hb2), d->presets_combo, FALSE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(vb), hb2, FALSE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(hb2), d->presets_combo, TRUE, TRUE, 2);
+  gtk_box_pack_start(GTK_BOX(vb), hb2, FALSE, TRUE, 2);
   // presets buttons
   hb2 = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   d->presets_btn_remove = dt_ui_button_new(_("remove"), _("remove the preset"), NULL);
   g_signal_connect(G_OBJECT(d->presets_btn_remove), "clicked", G_CALLBACK(_manage_preset_delete), self);
-  gtk_box_pack_start(GTK_BOX(hb2), d->presets_btn_remove, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(hb2), d->presets_btn_remove, TRUE, TRUE, 2);
   d->presets_btn_dup = dt_ui_button_new(_("duplicate"), _("duplicate the preset"), NULL);
   g_signal_connect(G_OBJECT(d->presets_btn_dup), "clicked", G_CALLBACK(_manage_editor_preset_action), self);
-  gtk_box_pack_start(GTK_BOX(hb2), d->presets_btn_dup, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(hb2), d->presets_btn_dup, TRUE, TRUE, 2);
   d->presets_btn_rename = dt_ui_button_new(_("rename"), _("rename the preset"), NULL);
   g_signal_connect(G_OBJECT(d->presets_btn_rename), "clicked", G_CALLBACK(_manage_editor_preset_action), self);
-  gtk_box_pack_start(GTK_BOX(hb2), d->presets_btn_rename, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(hb2), d->presets_btn_rename, TRUE, TRUE, 2);
   d->presets_btn_new = dt_ui_button_new(_("new"), _("create a new empty preset"), NULL);
   g_signal_connect(G_OBJECT(d->presets_btn_new), "clicked", G_CALLBACK(_manage_editor_preset_action), self);
-  gtk_box_pack_start(GTK_BOX(hb2), d->presets_btn_new, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(vb), hb2, FALSE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(hb), vb, FALSE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(hb2), d->presets_btn_new, TRUE, TRUE, 2);
+  gtk_box_pack_start(GTK_BOX(vb), hb2, FALSE, TRUE, 2);
+  gtk_box_pack_start(GTK_BOX(hb), vb, FALSE, TRUE, 2);
 
   // presets settings (search + quick acces)
   vb = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -3813,7 +3826,7 @@ static void _manage_show_window(dt_lib_module_t *self)
   d->edit_autoapply_btn = dtgtk_button_new(dtgtk_cairo_paint_preferences, 0, NULL);
   g_signal_connect(G_OBJECT(d->edit_autoapply_btn), "clicked", G_CALLBACK(_preset_autoapply_edit), self);
   gtk_widget_set_name(d->edit_autoapply_btn, "modulegroups-autoapply-btn");
-  gtk_box_pack_start(GTK_BOX(hb2), d->edit_autoapply_btn, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(hb2), d->edit_autoapply_btn, FALSE, FALSE, 2);
   gtk_box_pack_start(GTK_BOX(vb), hb2, FALSE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(hb), vb, FALSE, TRUE, 0);
 
