@@ -2328,6 +2328,7 @@ void dt_iop_gui_init_masks(GtkBox *blendw, dt_iop_module_t *module)
 
     bd->masks_combo = dt_bauhaus_combobox_new(module);
     dt_bauhaus_widget_set_label(bd->masks_combo, N_("blend"), N_("drawn mask"));
+    dt_bauhaus_widget_set_section(bd->masks_combo, TRUE);
 
     dt_bauhaus_combobox_add(bd->masks_combo, _("no mask used"));
     dt_bauhaus_combobox_set(bd->masks_combo, 0);
@@ -3075,7 +3076,7 @@ void dt_iop_gui_init_blending(GtkWidget *iopw, dt_iop_module_t *module)
 
     bd->details_slider = dt_bauhaus_slider_new_with_range(module, -1.0f, 1.0f, .01f, 0.0f, 2);
     dt_bauhaus_widget_set_label(bd->details_slider, N_("blend"), N_("details threshold"));
-    dt_bauhaus_slider_set_format(bd->details_slider, _("%.2f"));
+    dt_bauhaus_slider_set_format(bd->details_slider, "%.2f");
     gtk_widget_set_tooltip_text(bd->details_slider, _("adjust the threshold for the details mask (using raw data), "
                                                       "\npositive values selects areas with strong details, "
                                                       "\nnegative values select flat areas"));

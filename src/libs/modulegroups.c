@@ -1566,6 +1566,7 @@ void init_presets(dt_lib_module_t *self)
   AM("basecurve");
   AM("basicadj");
   AM("clipping");
+  AM("crop");
   AM("colisa");
   AM("colorreconstruct");
   AM("demosaic");
@@ -1609,7 +1610,7 @@ void init_presets(dt_lib_module_t *self)
   AM("atrous");
   AM("bilateral");
   AM("cacorrect");
-  AM("defringe");
+  AM("cacorrectrgb");
   AM("denoiseprofile");
   AM("dither");
   AM("hazeremoval");
@@ -1650,6 +1651,7 @@ void init_presets(dt_lib_module_t *self)
   AM("ashift");
   AM("basecurve");
   AM("clipping");
+  AM("crop");
   AM("denoiseprofile");
   AM("exposure");
   AM("flip");
@@ -1681,6 +1683,7 @@ void init_presets(dt_lib_module_t *self)
   AM("basecurve");
   AM("toneequal");
   AM("clipping");
+  AM("crop");
   AM("flip");
   AM("exposure");
   AM("temperature");
@@ -1701,7 +1704,7 @@ void init_presets(dt_lib_module_t *self)
   SMG(C_("modulegroup", "correct"), "correct");
   AM("ashift");
   AM("cacorrect");
-  AM("defringe");
+  AM("cacorrectrgb");
   AM("denoiseprofile");
   AM("hazeremoval");
   AM("hotpixels");
@@ -1731,6 +1734,7 @@ void init_presets(dt_lib_module_t *self)
   AM("filmicrgb");
   AM("toneequal");
   AM("clipping");
+  AM("crop");
   AM("flip");
   AM("exposure");
   AM("temperature");
@@ -1744,7 +1748,7 @@ void init_presets(dt_lib_module_t *self)
   SMG(C_("modulegroup", "correct"), "correct");
   AM("ashift");
   AM("cacorrect");
-  AM("defringe");
+  AM("cacorrectrgb");
   AM("denoiseprofile");
   AM("hazeremoval");
   AM("hotpixels");
@@ -1775,12 +1779,13 @@ void init_presets(dt_lib_module_t *self)
   AM("bilateral");
   AM("cacorrect");
   AM("clipping");
+  AM("crop");
   AM("colorchecker");
   AM("colorin");
   AM("colorout");
 
   AM("colorreconstruct");
-  AM("defringe");
+  AM("cacorrectrgb");
   AM("demosaic");
   AM("denoiseprofile");
   AM("dither");
@@ -1861,6 +1866,7 @@ void init_presets(dt_lib_module_t *self)
   AM("basicadj");
   // this modules are deprecated in 3.6 and should be removed 1 yer later
   AM("spots");
+  AM("defringe");
 
   dt_lib_presets_add(_(DEPRECATED_PRESET_NAME), self->plugin_name, self->version(), tx, strlen(tx), TRUE);
 

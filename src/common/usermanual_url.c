@@ -103,7 +103,8 @@ dt_help_url urls_db[] =
   {"bilat",                      "module-reference/processing-modules/local-contrast/"},
   {"bloom",                      "module-reference/processing-modules/bloom/"},
   {"borders",                    "module-reference/processing-modules/framing/"},
-  {"cacorrect",                  "module-reference/processing-modules/chromatic-aberrations/"},
+  {"cacorrect",                  "module-reference/processing-modules/raw-chromatic-aberrations/"},
+  {"cacorrectrgb",               "module-reference/processing-modules/chromatic-aberrations/"},
   {"censorize",                  "module-reference/processing-modules/censorize/"},
   {"channelmixer",               "module-reference/processing-modules/channel-mixer/"},
   {"channelmixerrgb",            "module-reference/processing-modules/color-calibration/"},
@@ -122,6 +123,7 @@ dt_help_url urls_db[] =
   {"colorreconstruct",           "module-reference/processing-modules/color-reconstruction/"},
   {"colortransfer",              NULL}, // deprecate
   {"colorzones",                 "module-reference/processing-modules/color-zones/"},
+  {"crop",                       "module-reference/processing-modules/crop/"},
   {"defringe",                   "module-reference/processing-modules/defringe/"},
   {"demosaic",                   "module-reference/processing-modules/demosaic/"},
   {"denoiseprofile",             "module-reference/processing-modules/denoise-profiled/"},
